@@ -4,17 +4,19 @@ import { useAuth } from '@/context/AuthContext';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { 
   Clock, AlertCircle, CheckCircle2, Wrench, 
   Package, User, Phone, Calendar,
   MessageSquare, ExternalLink, ChevronLeft, ChevronRight, MoreHorizontal, Trash2,
-  MessageCircle
+  MessageCircle, Users
 } from 'lucide-react';
 import type { WorkOrder, WorkOrderStatus, User as UserType } from '@/types';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Label } from '@/components/ui/label';
 
 // Columnas del tablero Kanban
 const BOARD_COLUMNS: { id: WorkOrderStatus; label: string; color: string; icon: React.ElementType }[] = [
@@ -74,13 +76,134 @@ Tu moto está lista para recoger ✅
   return encodeURIComponent(message);
 }
 
+// Modal para asignar mecánicos
+function AssignMechanicModal({
+  isOpen,
+  onClose,
+  onAssign,
+  order,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  onAssign: (mechanicIds: string[]) => void;
+  order: WorkOrder | null;
+}) {
+  const { users } = useAuth();
+  const [selectedMechanics, setSelectedMechanics] = useState<string[]>([]);
+  
+  // Obtener mecánicos y ayudantes
+  const mechanics = users.filter(u => u.role === 'maestro' && u.isActive);
+  const assistants = users.filter(u => u.role === 'ayudante' && u.isActive);
+  
+  const handleToggleMechanic = (id: string) => {
+    setSelectedMechanics(prev => 
+      prev.includes(id) 
+        ? prev.filter(m => m !== id)
+        : [...prev, id]
+    );
+  };
+  
+  const handleAssign = () => {
+    if (selectedMechanics.length > 0) {
+      onAssign(selectedMechanics);
+      setSelectedMechanics([]);
+    }
+  };
+  
+  const hasMechanic = selectedMechanics.some(id => 
+    mechanics.some(m => m.id === id)
+  );
+  
+  if (!order) return null;
+  
+  return (
+    <Dialog open={isOpen} onOpenChange={onClose}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Users className="w-5 h-5" />
+            Asignar Mecánicos
+          </DialogTitle>
+          <DialogDescription>
+            Selecciona al menos un mecánico para la orden {order.orderNumber}
+          </DialogDescription>
+        </DialogHeader>
+        
+        <div className="space-y-4 py-4">
+          {/* Mecánicos (obligatorio al menos uno) */}
+          <div>
+            <p className="text-sm font-medium mb-2">Mecánicos *</p>
+            <div className="space-y-2">
+              {mechanics.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No hay mecánicos registrados</p>
+              ) : (
+                mechanics.map(mechanic => (
+                  <div key={mechanic.id} className="flex items-center space-x-2">
+                    <Checkbox 
+                      id={`mech-${mechanic.id}`}
+                      checked={selectedMechanics.includes(mechanic.id)}
+                      onCheckedChange={() => handleToggleMechanic(mechanic.id)}
+                    />
+                    <Label htmlFor={`mech-${mechanic.id}`} className="cursor-pointer">
+                      {mechanic.name}
+                    </Label>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+          
+          {/* Ayudantes (opcional) */}
+          {assistants.length > 0 && (
+            <div>
+              <p className="text-sm font-medium mb-2">Ayudantes (opcional)</p>
+              <div className="space-y-2">
+                {assistants.map(assistant => (
+                  <div key={assistant.id} className="flex items-center space-x-2">
+                    <Checkbox 
+                      id={`assist-${assistant.id}`}
+                      checked={selectedMechanics.includes(assistant.id)}
+                      onCheckedChange={() => handleToggleMechanic(assistant.id)}
+                    />
+                    <Label htmlFor={`assist-${assistant.id}`} className="cursor-pointer">
+                      {assistant.name}
+                    </Label>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          
+          {!hasMechanic && selectedMechanics.length > 0 && (
+            <p className="text-xs text-amber-600">
+              ⚠️ Debes seleccionar al menos un mecánico (no solo ayudantes)
+            </p>
+          )}
+        </div>
+        
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancelar</Button>
+          <Button 
+            onClick={handleAssign}
+            disabled={!hasMechanic}
+          >
+            Asignar y Cambiar Estado
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // Tarjeta de orden de trabajo
 function WorkOrderCard({ 
   order, 
-  onClick 
+  onClick,
+  onRequestAssign,
 }: { 
   order: WorkOrder; 
   onClick: (order: WorkOrder) => void;
+  onRequestAssign: (order: WorkOrder, newStatus: WorkOrderStatus) => void;
 }) {
   const { clients, getMotorcyclesByClient, updateWorkOrderStatus, deleteWorkOrder } = useERP();
   const { users } = useAuth();
@@ -106,7 +229,12 @@ function WorkOrderCard({
   
   const handleStatusChange = (e: React.MouseEvent, newStatus: WorkOrderStatus) => {
     e.stopPropagation();
-    updateWorkOrderStatus(order.id, newStatus);
+    // Si es cambio de pendiente a asignado, requerir asignación de mecánico
+    if (order.status === 'pendiente' && newStatus === 'asignado') {
+      onRequestAssign(order, newStatus);
+    } else {
+      updateWorkOrderStatus(order.id, newStatus);
+    }
   };
   
   // Generar enlace de WhatsApp
@@ -195,7 +323,12 @@ function WorkOrderCard({
                   key={col.id}
                   onClick={(e) => {
                     e.stopPropagation();
-                    updateWorkOrderStatus(order.id, col.id);
+                    // Si es cambio de pendiente a asignado, requerir asignación de mecánico
+                    if (order.status === 'pendiente' && col.id === 'asignado') {
+                      onRequestAssign(order, col.id);
+                    } else {
+                      updateWorkOrderStatus(order.id, col.id);
+                    }
                   }}
                   className="text-xs"
                 >
@@ -469,9 +602,14 @@ function WorkOrderDetailModal({
 
 // Componente principal del Tablero Visual
 export function VisualBoard() {
-  const { workOrders } = useERP();
+  const { workOrders, updateWorkOrder } = useERP();
   const [selectedOrder, setSelectedOrder] = useState<WorkOrder | null>(null);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
+  
+  // Estado para el modal de asignación de mecánicos
+  const [assignModalOpen, setAssignModalOpen] = useState(false);
+  const [orderToAssign, setOrderToAssign] = useState<WorkOrder | null>(null);
+  const [pendingStatusChange, setPendingStatusChange] = useState<WorkOrderStatus | null>(null);
   
   // Agrupar órdenes por estado
   const ordersByStatus = useMemo(() => {
@@ -498,6 +636,27 @@ export function VisualBoard() {
   const handleCardClick = (order: WorkOrder) => {
     setSelectedOrder(order);
     setIsDetailOpen(true);
+  };
+  
+  // Manejar solicitud de asignación de mecánicos
+  const handleRequestAssign = (order: WorkOrder, newStatus: WorkOrderStatus) => {
+    setOrderToAssign(order);
+    setPendingStatusChange(newStatus);
+    setAssignModalOpen(true);
+  };
+  
+  // Manejar asignación de mecánicos
+  const handleAssignMechanics = async (mechanicIds: string[]) => {
+    if (orderToAssign && pendingStatusChange) {
+      // Actualizar la orden con los mecánicos asignados y el nuevo estado
+      await updateWorkOrder(orderToAssign.id, {
+        assignedTo: mechanicIds,
+        status: pendingStatusChange,
+      });
+      setAssignModalOpen(false);
+      setOrderToAssign(null);
+      setPendingStatusChange(null);
+    }
   };
   
   // Contar órdenes urgentes
@@ -565,6 +724,7 @@ export function VisualBoard() {
                       key={order.id} 
                       order={order} 
                       onClick={handleCardClick}
+                      onRequestAssign={handleRequestAssign}
                     />
                   ))}
                   {orders.length === 0 && (
@@ -584,6 +744,18 @@ export function VisualBoard() {
         order={selectedOrder}
         isOpen={isDetailOpen}
         onClose={() => setIsDetailOpen(false)}
+      />
+      
+      {/* Modal de asignación de mecánicos */}
+      <AssignMechanicModal
+        isOpen={assignModalOpen}
+        onClose={() => {
+          setAssignModalOpen(false);
+          setOrderToAssign(null);
+          setPendingStatusChange(null);
+        }}
+        onAssign={handleAssignMechanics}
+        order={orderToAssign}
       />
     </div>
   );
