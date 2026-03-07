@@ -206,7 +206,7 @@ function WorkOrderCard({
   onRequestAssign: (order: WorkOrder, newStatus: WorkOrderStatus) => void;
 }) {
   const { clients, getMotorcyclesByClient, updateWorkOrderStatus, deleteWorkOrder } = useERP();
-  const { users } = useAuth();
+  const { users, user: currentUser } = useAuth();
   
   const client = clients.find(c => c.id === order.clientId);
   const motorcycle = getMotorcyclesByClient(order.clientId).find(m => m.id === order.motorcycleId);
@@ -227,12 +227,27 @@ function WorkOrderCard({
   const { prev, next } = getAdjacentStatuses(order.status);
   const currentColumn = BOARD_COLUMNS.find(c => c.id === order.status);
   
+  // Verificar si el usuario puede pasar de calidad a completado
+  const canCompleteOrder = () => {
+    const allowedRoles = ['admin', 'maestro'];
+    return currentUser && allowedRoles.includes(currentUser.role);
+  };
+  
   const handleStatusChange = (e: React.MouseEvent, newStatus: WorkOrderStatus) => {
     e.stopPropagation();
     // Si es cambio de pendiente a asignado, requerir asignación de mecánico
     if (order.status === 'pendiente' && newStatus === 'asignado') {
       onRequestAssign(order, newStatus);
-    } else {
+    } 
+    // Si es cambio de calidad a completado, verificar permisos
+    else if (order.status === 'calidad' && newStatus === 'completado') {
+      if (!canCompleteOrder()) {
+        alert('Solo el administrador o el maestro pueden completar una orden.');
+        return;
+      }
+      updateWorkOrderStatus(order.id, newStatus);
+    }
+    else {
       updateWorkOrderStatus(order.id, newStatus);
     }
   };
@@ -298,6 +313,7 @@ function WorkOrderCard({
                 className="h-6 px-1 text-xs"
                 onClick={(e) => handleStatusChange(e, next!)}
                 title={`Mover a: ${BOARD_COLUMNS.find(c => c.id === next)?.label}`}
+                disabled={order.status === 'calidad' && next === 'completado' && currentUser?.role === 'ayudante'}
               >
                 <ChevronRight className="w-3 h-3" />
               </Button>
@@ -318,7 +334,13 @@ function WorkOrderCard({
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-48">
               <p className="text-xs text-muted-foreground px-2 py-1">Cambiar estado a:</p>
-              {BOARD_COLUMNS.filter(col => col.id !== order.status).map(col => (
+              {BOARD_COLUMNS.filter(col => col.id !== order.status).filter(col => {
+                // Si es ayudante y la orden está en calidad, no mostrar opción de completado
+                if (order.status === 'calidad' && col.id === 'completado' && currentUser?.role === 'ayudante') {
+                  return false;
+                }
+                return true;
+              }).map(col => (
                 <DropdownMenuItem 
                   key={col.id}
                   onClick={(e) => {
@@ -326,7 +348,16 @@ function WorkOrderCard({
                     // Si es cambio de pendiente a asignado, requerir asignación de mecánico
                     if (order.status === 'pendiente' && col.id === 'asignado') {
                       onRequestAssign(order, col.id);
-                    } else {
+                    } 
+                    // Si es cambio de calidad a completado, verificar permisos
+                    else if (order.status === 'calidad' && col.id === 'completado') {
+                      if (!canCompleteOrder()) {
+                        alert('Solo el administrador o el maestro pueden completar una orden.');
+                        return;
+                      }
+                      updateWorkOrderStatus(order.id, col.id);
+                    }
+                    else {
                       updateWorkOrderStatus(order.id, col.id);
                     }
                   }}
