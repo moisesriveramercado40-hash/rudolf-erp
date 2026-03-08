@@ -67,11 +67,12 @@ export type WorkOrderStatus =
 
 // Tipo de trabajo
 export type WorkType = 
-  | 'mantenimiento'   // Mantenimiento preventivo
-  | 'reparacion'      // Reparación general
-  | 'diagnostico'     // Diagnóstico
-  | 'modificacion'    // Modificación/custom
-  | 'garantia';       // Trabajo en garantía
+  | 'mantenimiento'       // Mantenimiento preventivo
+  | 'reparacion'          // Reparación general
+  | 'diagnostico'         // Diagnóstico
+  | 'modificacion'        // Modificación/custom
+  | 'garantia_bajaj'      // Garantía Bajaj
+  | 'garantia_particular'; // Garantía Particulares
 
 // Prioridad
 export type Priority = 'baja' | 'media' | 'alta' | 'urgente';

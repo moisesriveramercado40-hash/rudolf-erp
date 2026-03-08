@@ -1,22 +1,24 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef } from 'react';
 import { useERP } from '@/context/ERPContext';
 import { useAuth } from '@/context/AuthContext';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { 
   Clock, AlertCircle, CheckCircle2, Wrench, 
   Package, User, Phone, Calendar,
   MessageSquare, ExternalLink, ChevronLeft, ChevronRight, MoreHorizontal, Trash2,
-  MessageCircle, Users
+  MessageCircle, Users, Plus, Minus, FileText, X
 } from 'lucide-react';
 import type { WorkOrder, WorkOrderStatus, User as UserType } from '@/types';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 // Columnas del tablero Kanban
 const BOARD_COLUMNS: { id: WorkOrderStatus; label: string; color: string; icon: React.ElementType }[] = [
@@ -195,15 +197,581 @@ function AssignMechanicModal({
   );
 }
 
+// Modal para registrar repuestos necesarios (Progreso → Espera Repuestos)
+function PartsRequestModal({
+  isOpen,
+  onClose,
+  onConfirm,
+  order,
+  parts,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  onConfirm: (partsList: Array<{ partId: string; name: string; quantity: number; price: number }>) => void;
+  order: WorkOrder | null;
+  parts: Array<{ id: string; name: string; stock: number; price: number }>;
+}) {
+  const [requestedParts, setRequestedParts] = useState<Array<{ partId: string; name: string; quantity: number; price: number }>>([]);
+  const [selectedPart, setSelectedPart] = useState('');
+  const [quantity, setQuantity] = useState(1);
+  const [customName, setCustomName] = useState('');
+  const [customPrice, setCustomPrice] = useState(0);
+  
+  const handleAddPart = () => {
+    if (selectedPart === 'custom') {
+      if (customName && quantity > 0) {
+        setRequestedParts([...requestedParts, { 
+          partId: `custom_${Date.now()}`, 
+          name: customName, 
+          quantity, 
+          price: customPrice 
+        }]);
+        setCustomName('');
+        setCustomPrice(0);
+        setQuantity(1);
+      }
+    } else if (selectedPart) {
+      const part = parts.find(p => p.id === selectedPart);
+      if (part && quantity > 0) {
+        setRequestedParts([...requestedParts, { 
+          partId: part.id, 
+          name: part.name, 
+          quantity, 
+          price: part.price 
+        }]);
+        setSelectedPart('');
+        setQuantity(1);
+      }
+    }
+  };
+  
+  const handleRemovePart = (index: number) => {
+    setRequestedParts(requestedParts.filter((_, i) => i !== index));
+  };
+  
+  const handleConfirm = () => {
+    if (requestedParts.length > 0) {
+      onConfirm(requestedParts);
+      setRequestedParts([]);
+    }
+  };
+  
+  const total = requestedParts.reduce((sum, p) => sum + (p.price * p.quantity), 0);
+  
+  if (!order) return null;
+  
+  return (
+    <Dialog open={isOpen} onOpenChange={onClose}>
+      <DialogContent className="max-w-lg max-h-[90vh] overflow-hidden">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Package className="w-5 h-5" />
+            Solicitar Repuestos
+          </DialogTitle>
+          <DialogDescription>
+            Orden: {order.orderNumber} - Registra los repuestos necesarios
+          </DialogDescription>
+        </DialogHeader>
+        
+        <ScrollArea className="max-h-[50vh]">
+          <div className="space-y-4 py-4">
+            {/* Formulario para agregar repuesto */}
+            <div className="space-y-3 border rounded-lg p-3 bg-muted/50">
+              <Label className="text-sm">Agregar Repuesto</Label>
+              
+              <Select value={selectedPart} onValueChange={setSelectedPart}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Seleccionar repuesto..." />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="custom">Otro (no en inventario)</SelectItem>
+                  {parts.map(part => (
+                    <SelectItem key={part.id} value={part.id}>
+                      {part.name} (Stock: {part.stock}) - S/ {part.price.toFixed(2)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              
+              {selectedPart === 'custom' && (
+                <div className="space-y-2">
+                  <Input
+                    placeholder="Nombre del repuesto"
+                    value={customName}
+                    onChange={e => setCustomName(e.target.value)}
+                  />
+                  <Input
+                    type="number"
+                    placeholder="Precio unitario (S/)"
+                    value={customPrice || ''}
+                    onChange={e => setCustomPrice(parseFloat(e.target.value) || 0)}
+                  />
+                </div>
+              )}
+              
+              <div className="flex gap-2">
+                <div className="flex-1">
+                  <Label className="text-xs">Cantidad</Label>
+                  <Input
+                    type="number"
+                    min={1}
+                    value={quantity}
+                    onChange={e => setQuantity(parseInt(e.target.value) || 1)}
+                  />
+                </div>
+                <div className="flex items-end">
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={handleAddPart}
+                    disabled={!selectedPart || (selectedPart === 'custom' && !customName)}
+                  >
+                    <Plus className="w-4 h-4" />
+                  </Button>
+                </div>
+              </div>
+            </div>
+            
+            {/* Lista de repuestos solicitados */}
+            {requestedParts.length > 0 && (
+              <div className="space-y-2">
+                <Label className="text-sm">Repuestos Solicitados ({requestedParts.length})</Label>
+                <div className="space-y-2">
+                  {requestedParts.map((part, index) => (
+                    <div key={index} className="flex items-center justify-between p-2 bg-white rounded border">
+                      <div>
+                        <p className="text-sm font-medium">{part.name}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {part.quantity} x S/ {part.price.toFixed(2)} = S/ {(part.quantity * part.price).toFixed(2)}
+                        </p>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleRemovePart(index)}
+                        className="text-red-500"
+                      >
+                        <Minus className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+                
+                <div className="flex justify-between items-center pt-2 border-t">
+                  <span className="text-sm text-muted-foreground">Total estimado:</span>
+                  <span className="font-bold text-lg">S/ {total.toFixed(2)}</span>
+                </div>
+              </div>
+            )}
+          </div>
+        </ScrollArea>
+        
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancelar</Button>
+          <Button 
+            onClick={handleConfirm}
+            disabled={requestedParts.length === 0}
+          >
+            Solicitar Repuestos
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// Modal para checklist de repuestos (Espera Repuestos → Control Calidad)
+function PartsChecklistModal({
+  isOpen,
+  onClose,
+  onConfirm,
+  order,
+  parts,
+  currentUser,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  onConfirm: (checkedParts: Array<{ partId: string; name: string; received: boolean; missing: boolean }>, notes: string) => void;
+  order: WorkOrder | null;
+  parts: Array<{ partId: string; name: string; quantity: number; price: number }>;
+  currentUser: UserType | null;
+}) {
+  const [checkedParts, setCheckedParts] = useState<Array<{ partId: string; name: string; received: boolean; missing: boolean }>>([]);
+  const [notes, setNotes] = useState('');
+  
+  // Inicializar el checklist cuando se abre el modal
+  useState(() => {
+    if (parts.length > 0) {
+      setCheckedParts(parts.map(p => ({ 
+        partId: p.partId, 
+        name: p.name, 
+        received: false, 
+        missing: false 
+      })));
+    }
+  });
+  
+  const handleToggleReceived = (index: number) => {
+    const newChecked = [...checkedParts];
+    newChecked[index].received = !newChecked[index].received;
+    if (newChecked[index].received) {
+      newChecked[index].missing = false;
+    }
+    setCheckedParts(newChecked);
+  };
+  
+  const handleToggleMissing = (index: number) => {
+    const newChecked = [...checkedParts];
+    newChecked[index].missing = !newChecked[index].missing;
+    if (newChecked[index].missing) {
+      newChecked[index].received = false;
+    }
+    setCheckedParts(newChecked);
+  };
+  
+  const allReceived = checkedParts.length > 0 && checkedParts.every(p => p.received);
+  const hasMissing = checkedParts.some(p => p.missing);
+  
+  const handleConfirm = () => {
+    onConfirm(checkedParts, notes);
+    setCheckedParts([]);
+    setNotes('');
+  };
+  
+  const canConfirm = currentUser?.role === 'admin' || currentUser?.role === 'maestro';
+  
+  if (!order) return null;
+  
+  return (
+    <Dialog open={isOpen} onOpenChange={onClose}>
+      <DialogContent className="max-w-lg max-h-[90vh] overflow-hidden">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <CheckCircle2 className="w-5 h-5" />
+            Checklist de Repuestos
+          </DialogTitle>
+          <DialogDescription>
+            Orden: {order.orderNumber} - Verifica los repuestos recibidos
+          </DialogDescription>
+        </DialogHeader>
+        
+        <ScrollArea className="max-h-[50vh]">
+          <div className="space-y-4 py-4">
+            {!canConfirm && (
+              <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                <p className="text-sm text-amber-700">
+                  ⚠️ Solo el administrador o el maestro pueden completar este checklist.
+                </p>
+              </div>
+            )}
+            
+            {parts.length === 0 ? (
+              <p className="text-center text-muted-foreground">No hay repuestos registrados para esta orden.</p>
+            ) : (
+              <div className="space-y-2">
+                <Label className="text-sm">Repuestos Solicitados ({parts.length})</Label>
+                <div className="space-y-2">
+                  {parts.map((part, index) => (
+                    <div key={index} className="p-3 bg-white rounded border">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm font-medium">{part.name}</p>
+                          <p className="text-xs text-muted-foreground">Cantidad: {part.quantity}</p>
+                        </div>
+                        {canConfirm && (
+                          <div className="flex gap-2">
+                            <Button
+                              variant={checkedParts[index]?.received ? 'default' : 'outline'}
+                              size="sm"
+                              onClick={() => handleToggleReceived(index)}
+                              className="text-xs"
+                            >
+                              <CheckCircle2 className="w-3 h-3 mr-1" />
+                              Recibido
+                            </Button>
+                            <Button
+                              variant={checkedParts[index]?.missing ? 'destructive' : 'outline'}
+                              size="sm"
+                              onClick={() => handleToggleMissing(index)}
+                              className="text-xs"
+                            >
+                              <X className="w-3 h-3 mr-1" />
+                              Falta
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            
+            {canConfirm && (
+              <div className="space-y-2">
+                <Label className="text-sm">Notas adicionales</Label>
+                <textarea
+                  className="w-full p-2 border rounded-md text-sm min-h-[80px]"
+                  placeholder="Observaciones sobre los repuestos..."
+                  value={notes}
+                  onChange={e => setNotes(e.target.value)}
+                />
+              </div>
+            )}
+          </div>
+        </ScrollArea>
+        
+        <DialogFooter className="flex-col gap-2">
+          {hasMissing && (
+            <div className="w-full p-2 bg-red-50 border border-red-200 rounded text-center">
+              <p className="text-sm text-red-600 font-medium">
+                ⚠️ Hay repuestos faltantes. La orden se marcará como urgente.
+              </p>
+            </div>
+          )}
+          {allReceived && (
+            <div className="w-full p-2 bg-green-50 border border-green-200 rounded text-center">
+              <p className="text-sm text-green-600 font-medium">
+                ✅ Todos los repuestos recibidos. Listo para Control de Calidad.
+              </p>
+            </div>
+          )}
+          <div className="flex gap-2 w-full">
+            <Button variant="outline" onClick={onClose} className="flex-1">Cancelar</Button>
+            {canConfirm && (
+              <Button 
+                onClick={handleConfirm}
+                className="flex-1"
+              >
+                {hasMissing ? 'Marcar con Faltantes' : 'Confirmar y Pasar a Calidad'}
+              </Button>
+            )}
+          </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// Modal para acta de entrega (Completado → Entregado)
+function DeliveryActModal({
+  isOpen,
+  onClose,
+  onConfirm,
+  order,
+  client,
+  motorcycle,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  onConfirm: (signature: string, photo: string | null, notes: string) => void;
+  order: WorkOrder | null;
+  client: any;
+  motorcycle: any;
+}) {
+  const [signature, setSignature] = useState<string>('');
+  const [photo, setPhoto] = useState<string | null>(null);
+  const [notes, setNotes] = useState('');
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [isDrawing, setIsDrawing] = useState(false);
+  
+  const startDrawing = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    
+    setIsDrawing(true);
+    const rect = canvas.getBoundingClientRect();
+    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
+    
+    ctx.beginPath();
+    ctx.moveTo(clientX - rect.left, clientY - rect.top);
+    ctx.strokeStyle = '#000';
+    ctx.lineWidth = 2;
+  };
+  
+  const draw = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
+    if (!isDrawing) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    
+    const rect = canvas.getBoundingClientRect();
+    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
+    
+    ctx.lineTo(clientX - rect.left, clientY - rect.top);
+    ctx.stroke();
+  };
+  
+  const stopDrawing = () => {
+    setIsDrawing(false);
+    const canvas = canvasRef.current;
+    if (canvas) {
+      setSignature(canvas.toDataURL());
+    }
+  };
+  
+  const clearSignature = () => {
+    const canvas = canvasRef.current;
+    if (canvas) {
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+      }
+      setSignature('');
+    }
+  };
+  
+  const handlePhotoCapture = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        setPhoto(event.target?.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+  
+  const handleConfirm = () => {
+    if (signature) {
+      onConfirm(signature, photo, notes);
+      setSignature('');
+      setPhoto(null);
+      setNotes('');
+      clearSignature();
+    }
+  };
+  
+  if (!order || !client || !motorcycle) return null;
+  
+  return (
+    <Dialog open={isOpen} onOpenChange={onClose}>
+      <DialogContent className="max-w-lg max-h-[90vh] overflow-hidden">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <FileText className="w-5 h-5" />
+            Acta de Entrega
+          </DialogTitle>
+          <DialogDescription>
+            Orden: {order.orderNumber} - Entrega de moto al cliente
+          </DialogDescription>
+        </DialogHeader>
+        
+        <ScrollArea className="max-h-[60vh]">
+          <div className="space-y-4 py-4">
+            {/* Información de la orden */}
+            <div className="p-3 bg-muted rounded-lg space-y-1">
+              <p className="text-sm"><strong>Cliente:</strong> {client.firstName} {client.lastName}</p>
+              <p className="text-sm"><strong>Moto:</strong> {motorcycle.brand} {motorcycle.model} - {motorcycle.plate}</p>
+              <p className="text-sm"><strong>Total a pagar:</strong> S/ {order.totalCost.toFixed(2)}</p>
+            </div>
+            
+            {/* Firma del cliente */}
+            <div className="space-y-2">
+              <Label className="text-sm">Firma del Cliente *</Label>
+              <div className="border rounded-lg overflow-hidden bg-white">
+                <canvas
+                  ref={canvasRef}
+                  width={400}
+                  height={150}
+                  className="w-full touch-none"
+                  onMouseDown={startDrawing}
+                  onMouseMove={draw}
+                  onMouseUp={stopDrawing}
+                  onMouseLeave={stopDrawing}
+                  onTouchStart={startDrawing}
+                  onTouchMove={draw}
+                  onTouchEnd={stopDrawing}
+                  style={{ cursor: 'crosshair' }}
+                />
+              </div>
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={clearSignature}
+                className="w-full"
+              >
+                Limpiar Firma
+              </Button>
+            </div>
+            
+            {/* Foto del cliente con la moto */}
+            <div className="space-y-2">
+              <Label className="text-sm">Foto del Cliente con la Moto (opcional)</Label>
+              <div className="flex items-center gap-2">
+                <Input
+                  type="file"
+                  accept="image/*"
+                  onChange={handlePhotoCapture}
+                  className="flex-1"
+                />
+              </div>
+              {photo && (
+                <div className="relative aspect-video rounded-lg overflow-hidden border">
+                  <img src={photo} alt="Cliente con moto" className="w-full h-full object-cover" />
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    className="absolute top-2 right-2"
+                    onClick={() => setPhoto(null)}
+                  >
+                    <X className="w-4 h-4" />
+                  </Button>
+                </div>
+              )}
+            </div>
+            
+            {/* Notas */}
+            <div className="space-y-2">
+              <Label className="text-sm">Notas de entrega</Label>
+              <textarea
+                className="w-full p-2 border rounded-md text-sm min-h-[80px]"
+                placeholder="Observaciones adicionales..."
+                value={notes}
+                onChange={e => setNotes(e.target.value)}
+              />
+            </div>
+          </div>
+        </ScrollArea>
+        
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancelar</Button>
+          <Button 
+            onClick={handleConfirm}
+            disabled={!signature}
+          >
+            Confirmar Entrega
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // Tarjeta de orden de trabajo
 function WorkOrderCard({ 
   order, 
   onClick,
   onRequestAssign,
+  onRequestParts,
+  onRequestChecklist,
+  onRequestDelivery,
+  hasMissingParts,
 }: { 
   order: WorkOrder; 
   onClick: (order: WorkOrder) => void;
   onRequestAssign: (order: WorkOrder, newStatus: WorkOrderStatus) => void;
+  onRequestParts: (order: WorkOrder, newStatus: WorkOrderStatus) => void;
+  onRequestChecklist: (order: WorkOrder, newStatus: WorkOrderStatus) => void;
+  onRequestDelivery: (order: WorkOrder, newStatus: WorkOrderStatus) => void;
+  hasMissingParts?: boolean;
 }) {
   const { clients, getMotorcyclesByClient, updateWorkOrderStatus, deleteWorkOrder } = useERP();
   const { users, user: currentUser } = useAuth();
@@ -239,6 +807,18 @@ function WorkOrderCard({
     if (order.status === 'pendiente' && newStatus === 'asignado') {
       onRequestAssign(order, newStatus);
     } 
+    // Si es cambio de progreso a espera repuestos, requerir registro de repuestos
+    else if (order.status === 'en_progreso' && newStatus === 'espera_repuestos') {
+      onRequestParts(order, newStatus);
+    }
+    // Si es cambio de espera repuestos a calidad, requerir checklist
+    else if (order.status === 'espera_repuestos' && newStatus === 'calidad') {
+      onRequestChecklist(order, newStatus);
+    }
+    // Si es cambio de completado a entregado, requerir acta de entrega
+    else if (order.status === 'completado' && newStatus === 'entregado') {
+      onRequestDelivery(order, newStatus);
+    }
     // Si es cambio de calidad a completado, verificar permisos
     else if (order.status === 'calidad' && newStatus === 'completado') {
       if (!canCompleteOrder()) {
@@ -259,7 +839,7 @@ function WorkOrderCard({
   
   return (
     <Card 
-      className="cursor-pointer hover:shadow-lg transition-all duration-200 border-l-4 hover:scale-[1.02]"
+      className={`cursor-pointer hover:shadow-lg transition-all duration-200 border-l-4 hover:scale-[1.02] ${hasMissingParts ? 'bg-red-50 border-red-300' : ''}`}
       style={{ borderLeftColor: order.priority === 'urgente' ? '#ef4444' : order.priority === 'alta' ? '#f97316' : '#3b82f6' }}
       onClick={() => onClick(order)}
     >
@@ -458,6 +1038,24 @@ function WorkOrderCard({
             </div>
           </div>
         )}
+        
+        {/* Botón de repuestos pendiente urgente */}
+        {hasMissingParts && (
+          <div className="mt-3 pt-2 border-t">
+            <Button 
+              size="sm" 
+              variant="destructive"
+              className="w-full rounded-full"
+              onClick={(e) => {
+                e.stopPropagation();
+                onRequestChecklist(order, 'calidad');
+              }}
+            >
+              <Package className="w-4 h-4 mr-2" />
+              Repuestos Pendiente Urgente
+            </Button>
+          </div>
+        )}
       </CardContent>
     </Card>
   );
@@ -633,7 +1231,8 @@ function WorkOrderDetailModal({
 
 // Componente principal del Tablero Visual
 export function VisualBoard() {
-  const { workOrders, updateWorkOrder } = useERP();
+  const { workOrders, updateWorkOrder, parts, clients, getMotorcyclesByClient } = useERP();
+  const { user } = useAuth();
   const [selectedOrder, setSelectedOrder] = useState<WorkOrder | null>(null);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   
@@ -641,6 +1240,23 @@ export function VisualBoard() {
   const [assignModalOpen, setAssignModalOpen] = useState(false);
   const [orderToAssign, setOrderToAssign] = useState<WorkOrder | null>(null);
   const [pendingStatusChange, setPendingStatusChange] = useState<WorkOrderStatus | null>(null);
+  
+  // Estado para el modal de solicitud de repuestos
+  const [partsRequestModalOpen, setPartsRequestModalOpen] = useState(false);
+  const [orderToRequestParts, setOrderToRequestParts] = useState<WorkOrder | null>(null);
+  const [pendingPartsStatusChange, setPendingPartsStatusChange] = useState<WorkOrderStatus | null>(null);
+  const [orderRequestedParts, setOrderRequestedParts] = useState<Record<string, Array<{ partId: string; name: string; quantity: number; price: number }>>>({});
+  const [orderMissingParts, setOrderMissingParts] = useState<Record<string, boolean>>({});
+  
+  // Estado para el modal de checklist de repuestos
+  const [checklistModalOpen, setChecklistModalOpen] = useState(false);
+  const [orderToChecklist, setOrderToChecklist] = useState<WorkOrder | null>(null);
+  const [pendingChecklistStatusChange, setPendingChecklistStatusChange] = useState<WorkOrderStatus | null>(null);
+  
+  // Estado para el modal de acta de entrega
+  const [deliveryModalOpen, setDeliveryModalOpen] = useState(false);
+  const [orderToDeliver, setOrderToDeliver] = useState<WorkOrder | null>(null);
+  const [pendingDeliveryStatusChange, setPendingDeliveryStatusChange] = useState<WorkOrderStatus | null>(null);
   
   // Agrupar órdenes por estado
   const ordersByStatus = useMemo(() => {
@@ -687,6 +1303,88 @@ export function VisualBoard() {
       setAssignModalOpen(false);
       setOrderToAssign(null);
       setPendingStatusChange(null);
+    }
+  };
+  
+  // Manejar solicitud de repuestos
+  const handleRequestParts = (order: WorkOrder, newStatus: WorkOrderStatus) => {
+    setOrderToRequestParts(order);
+    setPendingPartsStatusChange(newStatus);
+    setPartsRequestModalOpen(true);
+  };
+  
+  // Manejar confirmación de solicitud de repuestos
+  const handleConfirmPartsRequest = async (partsList: Array<{ partId: string; name: string; quantity: number; price: number }>) => {
+    if (orderToRequestParts && pendingPartsStatusChange) {
+      // Guardar los repuestos solicitados
+      setOrderRequestedParts(prev => ({
+        ...prev,
+        [orderToRequestParts.id]: partsList
+      }));
+      // Cambiar el estado de la orden
+      await updateWorkOrder(orderToRequestParts.id, {
+        status: pendingPartsStatusChange,
+      });
+      setPartsRequestModalOpen(false);
+      setOrderToRequestParts(null);
+      setPendingPartsStatusChange(null);
+    }
+  };
+  
+  // Manejar solicitud de checklist
+  const handleRequestChecklist = (order: WorkOrder, newStatus: WorkOrderStatus) => {
+    setOrderToChecklist(order);
+    setPendingChecklistStatusChange(newStatus);
+    setChecklistModalOpen(true);
+  };
+  
+  // Manejar confirmación de checklist
+  const handleConfirmChecklist = async (checkedParts: Array<{ partId: string; name: string; received: boolean; missing: boolean }>, notes: string) => {
+    if (orderToChecklist && pendingChecklistStatusChange) {
+      // Verificar si hay repuestos faltantes
+      const hasMissing = checkedParts.some(p => p.missing);
+      
+      // Guardar el estado de repuestos faltantes
+      setOrderMissingParts(prev => ({
+        ...prev,
+        [orderToChecklist.id]: hasMissing
+      }));
+      
+      // Cambiar el estado de la orden
+      await updateWorkOrder(orderToChecklist.id, {
+        status: pendingChecklistStatusChange,
+        notes: notes ? `${orderToChecklist.notes || ''}\n${notes}`.trim() : orderToChecklist.notes,
+      });
+      
+      setChecklistModalOpen(false);
+      setOrderToChecklist(null);
+      setPendingChecklistStatusChange(null);
+    }
+  };
+  
+  // Manejar solicitud de entrega
+  const handleRequestDelivery = (order: WorkOrder, newStatus: WorkOrderStatus) => {
+    setOrderToDeliver(order);
+    setPendingDeliveryStatusChange(newStatus);
+    setDeliveryModalOpen(true);
+  };
+  
+  // Manejar confirmación de entrega
+  const handleConfirmDelivery = async (signatureData: string, photoData: string | null, notes: string) => {
+    if (orderToDeliver && pendingDeliveryStatusChange) {
+      // TODO: Guardar firma y foto en el backend
+      console.log('Firma del cliente:', signatureData.substring(0, 50) + '...');
+      if (photoData) {
+        console.log('Foto del cliente:', photoData.substring(0, 50) + '...');
+      }
+      // Cambiar el estado de la orden
+      await updateWorkOrder(orderToDeliver.id, {
+        status: pendingDeliveryStatusChange,
+        notes: notes ? `${orderToDeliver.notes || ''}\nActa de entrega: ${notes}`.trim() : orderToDeliver.notes,
+      });
+      setDeliveryModalOpen(false);
+      setOrderToDeliver(null);
+      setPendingDeliveryStatusChange(null);
     }
   };
   
@@ -756,6 +1454,10 @@ export function VisualBoard() {
                       order={order} 
                       onClick={handleCardClick}
                       onRequestAssign={handleRequestAssign}
+                      onRequestParts={handleRequestParts}
+                      onRequestChecklist={handleRequestChecklist}
+                      onRequestDelivery={handleRequestDelivery}
+                      hasMissingParts={orderMissingParts[order.id]}
                     />
                   ))}
                   {orders.length === 0 && (
@@ -787,6 +1489,47 @@ export function VisualBoard() {
         }}
         onAssign={handleAssignMechanics}
         order={orderToAssign}
+      />
+      
+      {/* Modal de solicitud de repuestos */}
+      <PartsRequestModal
+        isOpen={partsRequestModalOpen}
+        onClose={() => {
+          setPartsRequestModalOpen(false);
+          setOrderToRequestParts(null);
+          setPendingPartsStatusChange(null);
+        }}
+        onConfirm={handleConfirmPartsRequest}
+        order={orderToRequestParts}
+        parts={parts.map(p => ({ id: p.id, name: p.name, stock: p.stock, price: p.salePrice }))}
+      />
+      
+      {/* Modal de checklist de repuestos */}
+      <PartsChecklistModal
+        isOpen={checklistModalOpen}
+        onClose={() => {
+          setChecklistModalOpen(false);
+          setOrderToChecklist(null);
+          setPendingChecklistStatusChange(null);
+        }}
+        onConfirm={handleConfirmChecklist}
+        order={orderToChecklist}
+        parts={orderToChecklist ? (orderRequestedParts[orderToChecklist.id] || []) : []}
+        currentUser={user}
+      />
+      
+      {/* Modal de acta de entrega */}
+      <DeliveryActModal
+        isOpen={deliveryModalOpen}
+        onClose={() => {
+          setDeliveryModalOpen(false);
+          setOrderToDeliver(null);
+          setPendingDeliveryStatusChange(null);
+        }}
+        onConfirm={handleConfirmDelivery}
+        order={orderToDeliver}
+        client={orderToDeliver ? clients.find(c => c.id === orderToDeliver.clientId) : null}
+        motorcycle={orderToDeliver ? getMotorcyclesByClient(orderToDeliver.clientId).find(m => m.id === orderToDeliver.motorcycleId) : null}
       />
     </div>
   );

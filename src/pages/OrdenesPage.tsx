@@ -32,7 +32,36 @@ const WORK_TYPES: { value: WorkType; label: string }[] = [
   { value: 'reparacion', label: 'Reparación' },
   { value: 'diagnostico', label: 'Diagnóstico' },
   { value: 'modificacion', label: 'Modificación' },
-  { value: 'garantia', label: 'Garantía' },
+  { value: 'garantia_bajaj', label: 'Garantía Bajaj' },
+  { value: 'garantia_particular', label: 'Garantía Particulares' },
+];
+
+// Servicios predeterminados de mano de obra
+const PREDEFINED_LABOR_SERVICES: { value: string; label: string; price: number }[] = [
+  { value: 'cambio_aceite', label: 'Cambio de aceite', price: 35.00 },
+  { value: 'cambio_aceite_filtro', label: 'Cambio de aceite y filtro', price: 50.00 },
+  { value: 'ajuste_frenos', label: 'Ajuste de frenos', price: 25.00 },
+  { value: 'cambio_pastillas_freno', label: 'Cambio de pastillas de freno', price: 40.00 },
+  { value: 'cambio_bujia', label: 'Cambio de bujía', price: 20.00 },
+  { value: 'limpieza_carburador', label: 'Limpieza de carburador', price: 60.00 },
+  { value: 'sincronizacion_carburador', label: 'Sincronización de carburador', price: 80.00 },
+  { value: 'cambio_cadena', label: 'Cambio de cadena', price: 45.00 },
+  { value: 'ajuste_cadena', label: 'Ajuste de cadena', price: 15.00 },
+  { value: 'cambio_bateria', label: 'Cambio de batería', price: 30.00 },
+  { value: 'cambio_llanta_delantera', label: 'Cambio de llanta delantera', price: 35.00 },
+  { value: 'cambio_llanta_trasera', label: 'Cambio de llanta trasera', price: 45.00 },
+  { value: 'balanceo_llantas', label: 'Balanceo de llantas', price: 25.00 },
+  { value: 'alineacion_direccion', label: 'Alineación de dirección', price: 40.00 },
+  { value: 'cambio_amortiguador', label: 'Cambio de amortiguador', price: 70.00 },
+  { value: 'revision_general', label: 'Revisión general', price: 50.00 },
+  { value: 'diagnostico_completo', label: 'Diagnóstico completo', price: 40.00 },
+  { value: 'cambio_rodamientos', label: 'Cambio de rodamientos', price: 55.00 },
+  { value: 'cambio_retenes', label: 'Cambio de retenes', price: 65.00 },
+  { value: 'pintura_general', label: 'Pintura general', price: 350.00 },
+  { value: 'pulido_faros', label: 'Pulido de faros', price: 40.00 },
+  { value: 'instalacion_alarmas', label: 'Instalación de alarmas', price: 80.00 },
+  { value: 'instalacion_gps', label: 'Instalación de GPS', price: 60.00 },
+  { value: 'otro', label: 'Otro servicio (personalizado)', price: 0.00 },
 ];
 
 const PRIORITIES: { value: Priority; label: string }[] = [
@@ -64,7 +93,7 @@ const MOCK_USERS = [
 ];
 
 export function OrdenesPage() {
-  const { workOrders, clients, motorcycles, addWorkOrder, updateWorkOrder, updateWorkOrderStatus, deleteWorkOrder, updateMotorcycle, addWorkOrderTask } = useERP();
+  const { workOrders, clients, motorcycles, addWorkOrder, updateWorkOrder, updateWorkOrderStatus, deleteWorkOrder, updateMotorcycle, addWorkOrderTask, getInspectionByWorkOrder } = useERP();
   const { user, canAccessModule } = useAuth();
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<WorkOrderStatus | 'all'>('all');
@@ -631,6 +660,34 @@ export function OrdenesPage() {
                 
                 {/* Formulario para agregar mano de obra */}
                 <div className="space-y-2">
+                  {/* Select de servicios predeterminados */}
+                  <div className="space-y-1">
+                    <Label className="text-xs text-muted-foreground">Seleccionar servicio predeterminado (opcional)</Label>
+                    <Select 
+                      onValueChange={(value) => {
+                        const service = PREDEFINED_LABOR_SERVICES.find(s => s.value === value);
+                        if (service) {
+                          setNewLaborItem({
+                            ...newLaborItem,
+                            description: service.label,
+                            unitPrice: service.price
+                          });
+                        }
+                      }}
+                    >
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="Seleccionar servicio..." />
+                      </SelectTrigger>
+                      <SelectContent className="max-h-60">
+                        {PREDEFINED_LABOR_SERVICES.map(service => (
+                          <SelectItem key={service.value} value={service.value}>
+                            {service.label} - S/ {service.price.toFixed(2)}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  
                   <Input
                     value={newLaborItem.description}
                     onChange={e => setNewLaborItem({...newLaborItem, description: e.target.value})}
@@ -905,12 +962,105 @@ export function OrdenesPage() {
               </TabsContent>
               
               <TabsContent value="inspection" className="max-h-[60vh] overflow-y-auto pr-2">
-                {/* Aquí se mostraría la información de la inspección */}
-                <div className="text-center py-8 text-muted-foreground">
-                  <Camera className="w-12 h-12 mx-auto mb-2 opacity-50" />
-                  <p>La información de la inspección se muestra aquí</p>
-                  <p className="text-sm">Fotos, daños registrados y condición general de la moto</p>
-                </div>
+                {selectedOrder && (() => {
+                  const inspection = getInspectionByWorkOrder(selectedOrder.id);
+                  if (!inspection) {
+                    return (
+                      <div className="text-center py-8 text-muted-foreground">
+                        <Camera className="w-12 h-12 mx-auto mb-2 opacity-50" />
+                        <p>No hay inspección registrada para esta orden</p>
+                      </div>
+                    );
+                  }
+                  return (
+                    <div className="space-y-4">
+                      {/* Fotos de la inspección */}
+                      {inspection.photos && inspection.photos.length > 0 && (
+                        <div className="space-y-2">
+                          <Label className="text-sm font-medium">Fotos de la Inspección ({inspection.photos.length})</Label>
+                          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                            {inspection.photos.map((photo, index) => (
+                              <div key={index} className="relative aspect-square rounded-lg overflow-hidden border bg-muted">
+                                <img 
+                                  src={photo} 
+                                  alt={`Foto ${index + 1}`}
+                                  className="w-full h-full object-cover"
+                                  onClick={() => window.open(photo, '_blank')}
+                                  style={{ cursor: 'pointer' }}
+                                />
+                                <div className="absolute top-1 left-1 bg-black/50 text-white text-xs px-1.5 py-0.5 rounded">
+                                  {index + 1}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      
+                      {/* Daños registrados */}
+                      {inspection.damages && inspection.damages.length > 0 && (
+                        <div className="space-y-2">
+                          <Label className="text-sm font-medium">Daños Registrados ({inspection.damages.length})</Label>
+                          <div className="space-y-2">
+                            {inspection.damages.map((damage, index) => (
+                              <div key={index} className="p-3 bg-red-50 border border-red-200 rounded-lg">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-medium capitalize">{damage.type}</span>
+                                  <span className="text-muted-foreground">-</span>
+                                  <span>{damage.location}</span>
+                                </div>
+                                {damage.description && (
+                                  <p className="text-sm text-muted-foreground mt-1">{damage.description}</p>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      
+                      {/* Condición general */}
+                      <div className="space-y-2">
+                        <Label className="text-sm font-medium">Condición General</Label>
+                        <Badge className={
+                          inspection.generalCondition === 'excelente' ? 'bg-green-100 text-green-700' :
+                          inspection.generalCondition === 'bueno' ? 'bg-blue-100 text-blue-700' :
+                          inspection.generalCondition === 'regular' ? 'bg-yellow-100 text-yellow-700' :
+                          'bg-red-100 text-red-700'
+                        }>
+                          {inspection.generalCondition.toUpperCase()}
+                        </Badge>
+                      </div>
+                      
+                      {/* Kilometraje */}
+                      <div className="space-y-2">
+                        <Label className="text-sm font-medium">Kilometraje al momento de la inspección</Label>
+                        <p className="text-sm">{inspection.mileageAtInspection.toLocaleString()} km</p>
+                      </div>
+                      
+                      {/* Observaciones */}
+                      {inspection.notes && (
+                        <div className="space-y-2">
+                          <Label className="text-sm font-medium">Observaciones</Label>
+                          <p className="text-sm bg-muted p-3 rounded">{inspection.notes}</p>
+                        </div>
+                      )}
+                      
+                      {/* Firma del cliente */}
+                      {inspection.clientSignature && (
+                        <div className="space-y-2">
+                          <Label className="text-sm font-medium">Firma del Cliente</Label>
+                          <div className="border rounded-lg p-2 bg-white">
+                            <img 
+                              src={inspection.clientSignature} 
+                              alt="Firma del cliente"
+                              className="max-h-32 mx-auto"
+                            />
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
               </TabsContent>
             </Tabs>
           )}

@@ -35,7 +35,8 @@ const WORK_TYPES: { id: WorkType; label: string }[] = [
   { id: 'reparacion', label: 'Reparación' },
   { id: 'diagnostico', label: 'Diagnóstico' },
   { id: 'modificacion', label: 'Modificación' },
-  { id: 'garantia', label: 'Garantía' },
+  { id: 'garantia_bajaj', label: 'Garantía Bajaj' },
+  { id: 'garantia_particular', label: 'Garantía Particulares' },
 ];
 
 // Diálogo para nueva cotización
