@@ -113,6 +113,21 @@ export interface WorkOrder {
   
   // Quién creó la orden
   createdBy: string;
+  
+  // Historial de auditoría - quién hizo qué y cuándo
+  auditLog?: WorkOrderAuditEntry[];
+}
+
+// Entrada de auditoría para historial de orden
+export interface WorkOrderAuditEntry {
+  id: string;
+  timestamp: Date;
+  userId: string;
+  userName: string;
+  action: 'created' | 'status_changed' | 'assigned' | 'parts_requested' | 'parts_received' | 'completed' | 'delivered' | 'note_added' | 'modified';
+  details: string;
+  oldValue?: string;
+  newValue?: string;
 }
 
 // Repuestos usados en orden de trabajo

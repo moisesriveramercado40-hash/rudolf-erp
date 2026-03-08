@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useCallback, useEffect, type ReactNode } from 'react';
+import { useAuth } from './AuthContext';
 import type { 
   Client, Motorcycle, WorkOrder, Part, Sale, 
   Transaction, Warehouse, Supplier, DashboardStats,
@@ -8,7 +9,8 @@ import type {
   Quote, QuoteStatus,
   BusinessPolicy,
   MotorcycleInspection,
-  WorkOrderTask
+  WorkOrderTask,
+  WorkOrderAuditEntry
 } from '@/types';
 import {
   clientsService,
@@ -433,6 +435,8 @@ const generateQuoteNumber = () => `COT-2024-${String(quoteCounter++).padStart(3,
 const USE_FIREBASE = import.meta.env.VITE_USE_FIREBASE !== 'false';
 
 export function ERPProvider({ children }: { children: ReactNode }) {
+  const { user: currentUser } = useAuth();
+  
   const [clients, setClients] = useState<Client[]>(INITIAL_CLIENTS);
   const [motorcycles, setMotorcycles] = useState<Motorcycle[]>(INITIAL_MOTORCYCLES);
   const [workOrders, setWorkOrders] = useState<WorkOrder[]>(INITIAL_WORK_ORDERS);
@@ -636,16 +640,32 @@ export function ERPProvider({ children }: { children: ReactNode }) {
     };
     
     if (USE_FIREBASE && isFirebaseReady) {
-      const id = await workOrdersService.add(newOrder);
+      const auditLog: WorkOrderAuditEntry[] = currentUser ? [{
+        id: generateId(),
+        timestamp: new Date(),
+        userId: currentUser.id,
+        userName: currentUser.name,
+        action: 'created',
+        details: `Orden creada por ${currentUser.name}`,
+      }] : [];
+      const id = await workOrdersService.add({ ...newOrder, auditLog } as any);
       refreshStats();
       return id;
     } else {
       const id = generateId();
-      setWorkOrders(prev => [...prev, { ...newOrder, id }]);
+      const auditLog: WorkOrderAuditEntry[] = currentUser ? [{
+        id: generateId(),
+        timestamp: new Date(),
+        userId: currentUser.id,
+        userName: currentUser.name,
+        action: 'created',
+        details: `Orden creada por ${currentUser.name}`,
+      }] : [];
+      setWorkOrders(prev => [...prev, { ...newOrder, id, auditLog }]);
       refreshStats();
       return id;
     }
-  }, [isFirebaseReady]);
+  }, [isFirebaseReady, currentUser]);
 
   const updateWorkOrder = useCallback(async (id: string, data: Partial<WorkOrder>) => {
     if (USE_FIREBASE && isFirebaseReady) {
@@ -663,13 +683,48 @@ export function ERPProvider({ children }: { children: ReactNode }) {
     if (status === 'completado') updates.completedAt = now;
     if (status === 'entregado') updates.deliveredAt = now;
     
+    // Obtener la orden actual para saber el estado anterior
+    const currentOrder = workOrders.find(wo => wo.id === id);
+    const oldStatus = currentOrder?.status;
+    
     if (USE_FIREBASE && isFirebaseReady) {
-      await workOrdersService.update(id, updates);
+      const currentAuditLog = currentOrder?.auditLog || [];
+      const newAuditLog = currentUser && oldStatus ? [...currentAuditLog, {
+        id: generateId(),
+        timestamp: new Date(),
+        userId: currentUser.id,
+        userName: currentUser.name,
+        action: 'status_changed' as const,
+        details: `${currentUser.name} cambió el estado de la orden`,
+        oldValue: oldStatus,
+        newValue: status,
+      }] : currentAuditLog;
+      await workOrdersService.update(id, { ...updates, auditLog: newAuditLog } as any);
     } else {
-      setWorkOrders(prev => prev.map(wo => wo.id === id ? { ...wo, ...updates } : wo));
+      setWorkOrders(prev => prev.map(wo => {
+        if (wo.id === id) {
+          const currentAuditLog = wo.auditLog || [];
+          const newAuditLog = currentUser && oldStatus ? [...currentAuditLog, {
+            id: generateId(),
+            timestamp: new Date(),
+            userId: currentUser.id,
+            userName: currentUser.name,
+            action: 'status_changed' as const,
+            details: `${currentUser.name} cambió el estado de la orden`,
+            oldValue: oldStatus,
+            newValue: status,
+          }] : currentAuditLog;
+          return { 
+            ...wo, 
+            ...updates, 
+            auditLog: newAuditLog 
+          };
+        }
+        return wo;
+      }));
     }
     refreshStats();
-  }, [isFirebaseReady]);
+  }, [isFirebaseReady, currentUser, workOrders]);
 
   const deleteWorkOrder = useCallback(async (id: string) => {
     if (USE_FIREBASE && isFirebaseReady) {

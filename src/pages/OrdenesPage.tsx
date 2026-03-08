@@ -20,11 +20,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { 
   Search, Plus, Eye, Trash2, 
-  Play, CheckCircle, UserCheck, Camera, Wrench, Package
+  Play, CheckCircle, UserCheck, Camera, Wrench, Package, Clock
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { MotorcycleInspectionForm } from '@/components/MotorcycleInspection';
 import { WorkOrderTasks } from '@/components/WorkOrderTasks';
+import { AuditLog } from '@/components/AuditLog';
 import type { WorkOrder, WorkOrderStatus, WorkType, Priority } from '@/types';
 
 const WORK_TYPES: { value: WorkType; label: string }[] = [
@@ -894,10 +895,11 @@ export function OrdenesPage() {
           </DialogHeader>
           {selectedOrder && (
             <Tabs defaultValue="info" className="w-full">
-              <TabsList className="grid w-full grid-cols-3">
+              <TabsList className="grid w-full grid-cols-4">
                 <TabsTrigger value="info">Información General</TabsTrigger>
                 <TabsTrigger value="tasks">Items de Trabajo</TabsTrigger>
                 <TabsTrigger value="inspection">Inspección</TabsTrigger>
+                <TabsTrigger value="history">Historial</TabsTrigger>
               </TabsList>
               
               <TabsContent value="info" className="space-y-4 max-h-[60vh] overflow-y-auto pr-2">
@@ -1061,6 +1063,16 @@ export function OrdenesPage() {
                     </div>
                   );
                 })()}
+              </TabsContent>
+              
+              <TabsContent value="history" className="max-h-[60vh] overflow-y-auto pr-2">
+                <div className="space-y-4">
+                  <h3 className="text-lg font-semibold flex items-center gap-2">
+                    <Clock className="w-5 h-5" />
+                    Historial de Actividades
+                  </h3>
+                  <AuditLog auditLog={selectedOrder.auditLog} />
+                </div>
               </TabsContent>
             </Tabs>
           )}
