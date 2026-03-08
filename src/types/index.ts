@@ -8,6 +8,7 @@ export type UserRole =
   | 'secretaria'      // Secretaria - recepción, clientes, citas
   | 'maestro'         // Maestro mecánico - trabajos asignados
   | 'ayudante'        // Ayudante - trabajos asignados
+  | 'ayudante_admin'  // Ayudante de admin - operativo, sin acceso económico completo
   | 'vendedor';       // Encargada de ventas - repuestos
 
 // Estado de usuario

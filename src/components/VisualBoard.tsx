@@ -484,7 +484,7 @@ function PartsChecklistModal({
                               variant={checkedParts[index]?.received ? 'default' : 'outline'}
                               size="sm"
                               onClick={() => handleToggleReceived(index)}
-                              className="text-xs"
+                              className={`text-xs ${checkedParts[index]?.received ? 'bg-green-500 hover:bg-green-600 text-white border-green-500' : ''}`}
                             >
                               <CheckCircle2 className="w-3 h-3 mr-1" />
                               Recibido
@@ -493,7 +493,7 @@ function PartsChecklistModal({
                               variant={checkedParts[index]?.missing ? 'destructive' : 'outline'}
                               size="sm"
                               onClick={() => handleToggleMissing(index)}
-                              className="text-xs"
+                              className={`text-xs ${checkedParts[index]?.missing ? 'bg-red-500 hover:bg-red-600 text-white border-red-500' : ''}`}
                             >
                               <X className="w-3 h-3 mr-1" />
                               Falta
@@ -801,10 +801,20 @@ function WorkOrderCard({
     return currentUser && allowedRoles.includes(currentUser.role);
   };
   
+  // Verificar si el usuario puede pasar de pendiente a asignado
+  const canAssignOrder = () => {
+    const allowedRoles = ['admin', 'secretaria', 'ayudante_admin'];
+    return currentUser && allowedRoles.includes(currentUser.role);
+  };
+  
   const handleStatusChange = (e: React.MouseEvent, newStatus: WorkOrderStatus) => {
     e.stopPropagation();
-    // Si es cambio de pendiente a asignado, requerir asignación de mecánico
+    // Si es cambio de pendiente a asignado, verificar permisos primero
     if (order.status === 'pendiente' && newStatus === 'asignado') {
+      if (!canAssignOrder()) {
+        alert('Solo el administrador, secretaria o ayudante de admin pueden asignar una orden.');
+        return;
+      }
       onRequestAssign(order, newStatus);
     } 
     // Si es cambio de progreso a espera repuestos, requerir registro de repuestos
@@ -893,7 +903,10 @@ function WorkOrderCard({
                 className="h-6 px-1 text-xs"
                 onClick={(e) => handleStatusChange(e, next!)}
                 title={`Mover a: ${BOARD_COLUMNS.find(c => c.id === next)?.label}`}
-                disabled={order.status === 'calidad' && next === 'completado' && currentUser?.role === 'ayudante'}
+                disabled={
+                  (order.status === 'calidad' && next === 'completado' && currentUser?.role === 'ayudante') ||
+                  (order.status === 'pendiente' && next === 'asignado' && !canAssignOrder())
+                }
               >
                 <ChevronRight className="w-3 h-3" />
               </Button>
@@ -919,14 +932,22 @@ function WorkOrderCard({
                 if (order.status === 'calidad' && col.id === 'completado' && currentUser?.role === 'ayudante') {
                   return false;
                 }
+                // Si la orden está en pendiente y el usuario no puede asignar, no mostrar opción de asignado
+                if (order.status === 'pendiente' && col.id === 'asignado' && !canAssignOrder()) {
+                  return false;
+                }
                 return true;
               }).map(col => (
                 <DropdownMenuItem 
                   key={col.id}
                   onClick={(e) => {
                     e.stopPropagation();
-                    // Si es cambio de pendiente a asignado, requerir asignación de mecánico
+                    // Si es cambio de pendiente a asignado, verificar permisos primero
                     if (order.status === 'pendiente' && col.id === 'asignado') {
+                      if (!canAssignOrder()) {
+                        alert('Solo el administrador, secretaria o ayudante de admin pueden asignar una orden.');
+                        return;
+                      }
                       onRequestAssign(order, col.id);
                     } 
                     // Si es cambio de calidad a completado, verificar permisos
