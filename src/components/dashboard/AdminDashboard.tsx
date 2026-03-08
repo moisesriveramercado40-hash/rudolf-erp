@@ -5,7 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { 
   TrendingUp, TrendingDown, Wrench, Package, 
   ShoppingCart, DollarSign, AlertTriangle, ArrowRight,
-  CheckCircle, Clock
+  CheckCircle, Clock, Download, Loader2
 } from 'lucide-react';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -14,13 +14,25 @@ import {
 import { cn } from '@/lib/utils';
 import { useEffect, useState } from 'react';
 import type { WorkOrder } from '@/types';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 
 const COLORS = ['#f97316', '#3b82f6', '#22c55e', '#eab308', '#ef4444', '#8b5cf6'];
 
 export function AdminDashboard() {
-  const { stats, workOrders, getLowStockParts } = useERP();
+  const { stats, workOrders, getLowStockParts, exportDatabase } = useERP();
   const [recentOrders, setRecentOrders] = useState<WorkOrder[]>([]);
   const [lowStockItems, setLowStockItems] = useState<ReturnType<typeof getLowStockParts>>([]);
+  const [showBackupDialog, setShowBackupDialog] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
 
   useEffect(() => {
     // Obtener órdenes recientes
@@ -84,6 +96,15 @@ export function AdminDashboard() {
     return labels[status] || status;
   };
 
+  const handleExport = () => {
+    setIsExporting(true);
+    exportDatabase();
+    setTimeout(() => {
+      setIsExporting(false);
+      setShowBackupDialog(false);
+    }, 1000);
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -93,6 +114,10 @@ export function AdminDashboard() {
           <p className="text-slate-500">Vista general del taller RUDOLF</p>
         </div>
         <div className="flex gap-2">
+          <Button variant="outline" onClick={() => setShowBackupDialog(true)}>
+            <Download className="w-4 h-4 mr-2" />
+            Respaldar BD
+          </Button>
           <Button variant="outline" onClick={() => window.location.hash = '/ordenes/nueva'}>
             <Wrench className="w-4 h-4 mr-2" />
             Nueva Orden
@@ -298,6 +323,35 @@ export function AdminDashboard() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Backup Confirmation Dialog */}
+      <AlertDialog open={showBackupDialog} onOpenChange={setShowBackupDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Respaldar Base de Datos</AlertDialogTitle>
+            <AlertDialogDescription>
+              ¿Está seguro que desea descargar una copia de seguridad de toda la base de datos? 
+              El archivo contendrá todos los datos del sistema incluyendo clientes, órdenes, inventario, ventas y transacciones.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={handleExport} disabled={isExporting}>
+              {isExporting ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Descargando...
+                </>
+              ) : (
+                <>
+                  <Download className="w-4 h-4 mr-2" />
+                  Descargar Respaldo
+                </>
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

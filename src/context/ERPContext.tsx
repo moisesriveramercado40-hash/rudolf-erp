@@ -10,7 +10,10 @@ import type {
   BusinessPolicy,
   MotorcycleInspection,
   WorkOrderTask,
-  WorkOrderAuditEntry
+  WorkOrderAuditEntry,
+  InventoryMovement,
+  AuditEntry,
+  AuditAction
 } from '@/types';
 import {
   clientsService,
@@ -52,6 +55,12 @@ interface ERPContextType {
   
   // Items de trabajo detallados
   workOrderTasks: WorkOrderTask[];
+  
+  // Movimientos de inventario (trazabilidad)
+  inventoryMovements: InventoryMovement[];
+  
+  // Auditoría global
+  globalAuditLog: AuditEntry[];
   
   // Stats
   stats: DashboardStats;
@@ -143,6 +152,9 @@ interface ERPContextType {
   
   // Refresh stats
   refreshStats: () => void;
+  
+  // Exportar base de datos completa
+  exportDatabase: () => void;
 }
 
 const ERPContext = createContext<ERPContextType | undefined>(undefined);
@@ -431,6 +443,76 @@ const generateSaleNumber = () => `V-2024-${String(saleCounter++).padStart(3, '0'
 let quoteCounter = 2;
 const generateQuoteNumber = () => `COT-2024-${String(quoteCounter++).padStart(3, '0')}`;
 
+// ============ FUNCIONES DE AUDITORÍA Y TRAZABILIDAD ============
+
+// Función helper para agregar entrada de auditoría global
+const addAuditEntry = (
+  setGlobalAuditLog: React.Dispatch<React.SetStateAction<AuditEntry[]>>,
+  currentUser: { id: string; name: string } | null,
+  entityType: AuditEntry['entityType'],
+  entityId: string,
+  action: AuditAction,
+  details: string,
+  oldValue?: string,
+  newValue?: string,
+  metadata?: Record<string, unknown>
+) => {
+  const entry: AuditEntry = {
+    id: generateId(),
+    timestamp: new Date(),
+    userId: currentUser?.id || 'system',
+    userName: currentUser?.name || 'Sistema',
+    entityType,
+    entityId,
+    action,
+    details,
+    oldValue,
+    newValue,
+    metadata,
+  };
+  setGlobalAuditLog(prev => [entry, ...prev]);
+  return entry;
+};
+
+// Función helper para registrar movimiento de inventario
+const addInventoryMovement = (
+  setInventoryMovements: React.Dispatch<React.SetStateAction<InventoryMovement[]>>,
+  part: Part,
+  warehouses: Warehouse[],
+  quantity: number,
+  type: 'entrada' | 'salida' | 'ajuste',
+  currentUser: { id: string; name: string } | null,
+  reason?: string,
+  referenceId?: string,
+  referenceType?: 'workorder' | 'sale' | 'purchase' | 'adjustment'
+) => {
+  const warehouse = warehouses.find(w => w.id === part.warehouseId);
+  const previousStock = part.stock;
+  const newStock = type === 'entrada' ? previousStock + quantity : 
+                   type === 'salida' ? previousStock - quantity : quantity;
+  
+  const movement: InventoryMovement = {
+    id: generateId(),
+    partId: part.id,
+    partName: part.name,
+    warehouseId: part.warehouseId,
+    warehouseName: warehouse?.name,
+    type,
+    quantity,
+    previousStock,
+    newStock,
+    reason,
+    referenceId,
+    referenceType,
+    createdBy: currentUser?.id || 'system',
+    userName: currentUser?.name,
+    createdAt: new Date(),
+  };
+  
+  setInventoryMovements(prev => [movement, ...prev]);
+  return movement;
+};
+
 // Flag para usar Firebase o datos locales (true por defecto)
 const USE_FIREBASE = import.meta.env.VITE_USE_FIREBASE !== 'false';
 
@@ -456,6 +538,10 @@ export function ERPProvider({ children }: { children: ReactNode }) {
   // Estados para pre-inspecciones y tasks
   const [inspections, setInspections] = useState<MotorcycleInspection[]>([]);
   const [workOrderTasks, setWorkOrderTasks] = useState<WorkOrderTask[]>([]);
+  
+  // Estados para trazabilidad
+  const [inventoryMovements, setInventoryMovements] = useState<InventoryMovement[]>([]);
+  const [globalAuditLog, setGlobalAuditLog] = useState<AuditEntry[]>([]);
   
   const [stats, setStats] = useState<DashboardStats>({
     totalOrders: 3,
@@ -1293,6 +1379,46 @@ export function ERPProvider({ children }: { children: ReactNode }) {
     });
   }, [workOrders, parts, sales, transactions]);
 
+  // ============ EXPORTAR BASE DE DATOS ============
+  const exportDatabase = useCallback(() => {
+    const now = new Date();
+    const timestamp = now.toISOString().slice(0, 19).replace(/[:-]/g, '').replace('T', '-');
+    
+    const database = {
+      metadata: {
+        exportDate: now.toISOString(),
+        appName: 'ERP Taller Rudolf',
+        version: '1.0.0',
+      },
+      clients,
+      motorcycles,
+      workOrders,
+      parts,
+      sales,
+      transactions,
+      warehouses,
+      suppliers,
+      customerNotifications,
+      thirdPartyServices,
+      quotes,
+      businessPolicies,
+      inspections,
+      workOrderTasks,
+      inventoryMovements,
+      globalAuditLog,
+    };
+    
+    const blob = new Blob([JSON.stringify(database, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `respaldo-manual-${timestamp}.json`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }, [clients, motorcycles, workOrders, parts, sales, transactions, warehouses, suppliers, customerNotifications, thirdPartyServices, quotes, businessPolicies, inspections, workOrderTasks, inventoryMovements, globalAuditLog]);
+
   return (
     <ERPContext.Provider
       value={{
@@ -1312,6 +1438,8 @@ export function ERPProvider({ children }: { children: ReactNode }) {
         inspections,
         workOrderTasks,
         stats,
+        inventoryMovements,
+        globalAuditLog,
         addClient,
         updateClient,
         deleteClient,
@@ -1372,6 +1500,7 @@ export function ERPProvider({ children }: { children: ReactNode }) {
         getTasksByWorkOrder,
         updateTaskStatus,
         refreshStats,
+        exportDatabase,
       }}
     >
       {children}

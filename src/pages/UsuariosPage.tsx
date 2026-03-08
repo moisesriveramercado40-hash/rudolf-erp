@@ -14,6 +14,16 @@ import {
 } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { 
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { 
   Users, Plus, Edit, Trash2, Phone,
   Shield, Wrench, ShoppingCart, ClipboardList
 } from 'lucide-react';
@@ -46,6 +56,7 @@ export function UsuariosPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [showEditDialog, setShowEditDialog] = useState(false);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [selectedUser, setSelectedUser] = useState<typeof DEMO_USERS[0] | null>(null);
   
   const [formData, setFormData] = useState({
@@ -95,8 +106,17 @@ export function UsuariosPage() {
     }
   };
 
-  const handleDelete = (userId: string) => {
-    setUsers(users.filter(u => u.id !== userId));
+  const handleDelete = (user: typeof DEMO_USERS[0]) => {
+    setSelectedUser(user);
+    setShowDeleteDialog(true);
+  };
+
+  const confirmDelete = () => {
+    if (selectedUser) {
+      setUsers(users.filter(u => u.id !== selectedUser.id));
+      setShowDeleteDialog(false);
+      setSelectedUser(null);
+    }
   };
 
   const openEdit = (user: typeof DEMO_USERS[0]) => {
@@ -229,7 +249,7 @@ export function UsuariosPage() {
                           <Button variant="ghost" size="icon" onClick={() => openEdit(user)}>
                             <Edit className="w-4 h-4" />
                           </Button>
-                          <Button variant="ghost" size="icon" onClick={() => handleDelete(user.id)}>
+                          <Button variant="ghost" size="icon" onClick={() => handleDelete(user)}>
                             <Trash2 className="w-4 h-4 text-red-500" />
                           </Button>
                         </div>
@@ -358,6 +378,25 @@ export function UsuariosPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Eliminar Usuario</AlertDialogTitle>
+            <AlertDialogDescription>
+              ¿Está seguro que desea eliminar al usuario <strong>{selectedUser?.name}</strong>? 
+              Esta acción no se puede deshacer y el usuario perderá acceso al sistema.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDelete} className="bg-red-500 hover:bg-red-600">
+              Eliminar Usuario
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

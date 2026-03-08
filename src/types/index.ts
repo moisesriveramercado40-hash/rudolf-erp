@@ -118,16 +118,47 @@ export interface WorkOrder {
   auditLog?: WorkOrderAuditEntry[];
 }
 
-// Entrada de auditoría para historial de orden
-export interface WorkOrderAuditEntry {
+// Tipos de acciones de auditoría
+export type AuditAction = 
+  // Órdenes de trabajo
+  | 'created' | 'status_changed' | 'assigned' | 'parts_requested' | 'parts_received' | 'completed' | 'delivered' | 'note_added' | 'modified'
+  // Tareas
+  | 'task_added' | 'task_updated' | 'task_deleted' | 'task_completed'
+  // Inventario
+  | 'stock_in' | 'stock_out' | 'stock_adjusted' | 'part_added' | 'part_updated' | 'part_deleted'
+  // Ventas
+  | 'sale_created' | 'sale_deleted'
+  // Clientes
+  | 'client_added' | 'client_updated' | 'client_deleted'
+  // Motos
+  | 'motorcycle_added' | 'motorcycle_updated' | 'motorcycle_deleted'
+  // Cotizaciones
+  | 'quote_created' | 'quote_updated' | 'quote_approved' | 'quote_rejected' | 'quote_converted'
+  // Servicios terceros
+  | 'third_party_added' | 'third_party_updated' | 'third_party_status_changed'
+  // Inspección
+  | 'inspection_added' | 'inspection_updated'
+  // Notificaciones
+  | 'notification_sent' | 'notification_read';
+
+// Entrada de auditoría genérica para historial
+export interface AuditEntry {
   id: string;
   timestamp: Date;
   userId: string;
   userName: string;
-  action: 'created' | 'status_changed' | 'assigned' | 'parts_requested' | 'parts_received' | 'completed' | 'delivered' | 'note_added' | 'modified';
+  entityType: 'workorder' | 'task' | 'inventory' | 'sale' | 'client' | 'motorcycle' | 'quote' | 'thirdparty' | 'inspection' | 'notification';
+  entityId: string;
+  action: AuditAction;
   details: string;
   oldValue?: string;
   newValue?: string;
+  metadata?: Record<string, unknown>;
+}
+
+// Entrada de auditoría para historial de orden (compatibilidad)
+export interface WorkOrderAuditEntry extends Omit<AuditEntry, 'entityType' | 'entityId'> {
+  entityId?: string;
 }
 
 // Repuestos usados en orden de trabajo
@@ -200,17 +231,28 @@ export interface Supplier {
   isActive: boolean;
 }
 
-// Movimiento de inventario
+// Movimiento de inventario con trazabilidad completa
 export interface InventoryMovement {
   id: string;
   partId: string;
+  partName?: string; // Nombre del repuesto para referencia
   warehouseId: string;
+  warehouseName?: string; // Nombre del almacén
   type: 'entrada' | 'salida' | 'ajuste' | 'traslado';
   quantity: number;
+  previousStock: number; // Stock anterior
+  newStock: number; // Stock nuevo
   reason?: string;
-  referenceId?: string;  // ID de orden de trabajo o venta
+  referenceId?: string; // ID de orden de trabajo o venta
+  referenceType?: 'workorder' | 'sale' | 'purchase' | 'adjustment';
+  
+  // Auditoría
   createdBy: string;
+  userName?: string; // Nombre del usuario que realizó el movimiento
   createdAt: Date;
+  
+  // Notas adicionales
+  notes?: string;
 }
 
 // Venta de repuestos
