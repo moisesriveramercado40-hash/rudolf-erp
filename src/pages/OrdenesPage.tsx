@@ -670,12 +670,12 @@ export function OrdenesPage() {
         }
         setShowAddDialog(open);
       }}>
-        <DialogContent className="max-w-2xl !p-0 !overflow-y-auto" style={{ maxHeight: '90vh' }}>
-          {/* Wrapper flex column con estilos inline para garantizar scroll */}
-          <div>
+        <DialogContent className="max-w-2xl" style={{ padding: 0, maxHeight: '90vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+          {/* Wrapper flex column */}
+          <div style={{ display: 'flex', flexDirection: 'column', maxHeight: '90vh', overflow: 'hidden' }}>
             
             {/* Header fijo */}
-            <div style={{ padding: '24px 24px 16px 24px', borderBottom: '1px solid hsl(var(--border))' }}>
+            <div style={{ flexShrink: 0, padding: '24px 24px 16px 24px', borderBottom: '1px solid hsl(var(--border))', background: 'hsl(var(--background))', zIndex: 10 }}>
               <DialogHeader>
                 <DialogTitle className="flex items-center gap-2">
                   {addStep === 'order' ? (
@@ -700,7 +700,7 @@ export function OrdenesPage() {
             
             {/* Área scrollable - ESTA ES LA CLAVE */}
             {addStep === 'order' ? (
-              <div style={{ padding: '16px 24px' }} className="space-y-4">
+              <div style={{ flex: '1 1 auto', overflowY: 'auto', padding: '16px 24px', minHeight: 0 }} className="space-y-4">
               <div className="space-y-2">
                 <Label>Cliente</Label>
                 <Select value={formData.clientId} onValueChange={(v) => setFormData({...formData, clientId: v, motorcycleId: ''})}>
@@ -1058,7 +1058,7 @@ export function OrdenesPage() {
             </div>
           ) : (
             newOrderId && formData.motorcycleId && (
-              <div style={{ padding: '16px 24px' }}>
+              <div style={{ flex: '1 1 auto', overflowY: 'auto', padding: '16px 24px', minHeight: 0 }}>
                 <MotorcycleInspectionForm
                   motorcycleId={formData.motorcycleId}
                   workOrderId={newOrderId}
@@ -1073,7 +1073,7 @@ export function OrdenesPage() {
           
           {/* Footer fijo */}
           {addStep === 'order' && (
-            <div style={{ padding: '16px 24px', borderTop: '1px solid hsl(var(--border))', position: 'sticky', bottom: 0, background: 'hsl(var(--background))' }}>
+            <div style={{ flexShrink: 0, padding: '16px 24px', borderTop: '1px solid hsl(var(--border))', background: 'hsl(var(--background))' }}>
               <DialogFooter>
                 <Button variant="outline" onClick={() => setShowAddDialog(false)}>Cancelar</Button>
                 <Button 
@@ -1094,11 +1094,11 @@ export function OrdenesPage() {
 
       {/* View Dialog */}
       <Dialog open={showViewDialog} onOpenChange={setShowViewDialog}>
-        <DialogContent className="max-w-3xl !p-0 !overflow-y-auto" style={{ maxHeight: '90vh' }}>
+        <DialogContent className="max-w-3xl" style={{ padding: 0, maxHeight: '90vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
           <div>
             
             {/* Header fijo */}
-            <div style={{ padding: '24px 24px 16px 24px', borderBottom: '1px solid hsl(var(--border))' }}>
+            <div style={{ flexShrink: 0, padding: '24px 24px 16px 24px', borderBottom: '1px solid hsl(var(--border))', background: 'hsl(var(--background))', zIndex: 10 }}>
               <DialogHeader>
                 <div className="flex items-center justify-between pr-8">
                   <DialogTitle className="flex items-center gap-2">

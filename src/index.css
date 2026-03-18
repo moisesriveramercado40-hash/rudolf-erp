@@ -145,3 +145,14 @@
     min-height: calc(100vh - env(safe-area-inset-top) - env(safe-area-inset-bottom));
   }
 }
+/* Fix scroll for large dialogs (Ordenes de Trabajo) */
+[data-slot="dialog-content"][class*="overflow-y-auto"] {
+  overflow-y: auto !important;
+  max-height: 90vh !important;
+  display: flex !important;
+  flex-direction: column !important;
+}
+
+[data-slot="dialog-content"][class*="overflow-y-auto"] > div {
+  flex-shrink: 0;
+}

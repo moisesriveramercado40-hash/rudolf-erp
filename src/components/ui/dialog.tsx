@@ -55,7 +55,7 @@ function DialogContent({
 }) {
   const hasCustomMaxW = className?.includes('max-w-');
   const hasCustomPadding = className?.match(/!?p-\d|!?p-0/);
-  const hasOverflow = className?.includes('overflow');
+  const isCustomLayout = !!style;
   return (
     <DialogPortal data-slot="dialog-portal">
       <DialogOverlay />
@@ -64,8 +64,8 @@ function DialogContent({
         className={cn(
           "bg-background data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 fixed top-[50%] left-[50%] z-50 w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] rounded-lg border shadow-lg duration-200 outline-none",
           !hasCustomMaxW && "sm:max-w-lg",
-          !hasCustomPadding && "p-6",
-          !hasOverflow && "gap-4 grid",
+          !hasCustomPadding && !isCustomLayout && "p-6",
+          !isCustomLayout && "gap-4 grid",
           className
         )}
         style={style}

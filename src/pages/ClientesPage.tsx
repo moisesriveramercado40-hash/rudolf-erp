@@ -53,23 +53,34 @@ export function ClientesPage() {
     setDniLoading(true);
     setDniError('');
     try {
+      // Intentar con apis.net.pe
       const response = await fetch(`https://api.apis.net.pe/v2/reniec/dni?numero=${dni}`, {
-        headers: { 'Authorization': `Bearer ${DNI_API_TOKEN}` }
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${DNI_API_TOKEN}`,
+          'Accept': 'application/json',
+        },
       });
-      if (!response.ok) throw new Error('Error en la consulta');
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
       const data = await response.json();
       if (data.nombres) {
         setFormData(prev => ({
           ...prev,
           firstName: data.nombres || prev.firstName,
           lastName: `${data.apellidoPaterno || ''} ${data.apellidoMaterno || ''}`.trim() || prev.lastName,
+          dni: dni,
         }));
         setDniError('');
+      } else if (data.message) {
+        setDniError(data.message);
       } else {
         setDniError('No se encontraron datos para este DNI');
       }
-    } catch {
-      setDniError('Error al consultar el DNI. Puede ingresar los datos manualmente.');
+    } catch (err) {
+      console.error('Error DNI lookup:', err);
+      setDniError('Error al consultar. Verifique su conexión o ingrese los datos manualmente.');
     } finally {
       setDniLoading(false);
     }
