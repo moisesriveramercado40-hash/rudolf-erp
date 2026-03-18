@@ -16,8 +16,10 @@ import {
 } from '@/components/ui/dialog';
 import { 
   Search, Plus, Phone, Mail, MapPin, Edit, Trash2, 
-  Bike, Eye
+  Bike, Eye, Loader2, UserSearch
 } from 'lucide-react';
+
+const DNI_API_TOKEN = 'inti_live_61bdb3a4ae89117ed692cf6565944f53';
 
 export function ClientesPage() {
   const { clients, motorcycles, deleteClient, addClient, updateClient } = useERP();
@@ -28,6 +30,8 @@ export function ClientesPage() {
   const [showEditDialog, setShowEditDialog] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [selectedClient, setSelectedClient] = useState<typeof clients[0] | null>(null);
+  const [dniLoading, setDniLoading] = useState(false);
+  const [dniError, setDniError] = useState('');
   
   const [formData, setFormData] = useState({
     firstName: '',
@@ -40,6 +44,36 @@ export function ClientesPage() {
   });
 
   const canEdit = canAccessModule('clientes');
+
+  const lookupDNI = async (dni: string) => {
+    if (dni.length !== 8) {
+      setDniError('El DNI debe tener 8 dígitos');
+      return;
+    }
+    setDniLoading(true);
+    setDniError('');
+    try {
+      const response = await fetch(`https://api.apis.net.pe/v2/reniec/dni?numero=${dni}`, {
+        headers: { 'Authorization': `Bearer ${DNI_API_TOKEN}` }
+      });
+      if (!response.ok) throw new Error('Error en la consulta');
+      const data = await response.json();
+      if (data.nombres) {
+        setFormData(prev => ({
+          ...prev,
+          firstName: data.nombres || prev.firstName,
+          lastName: `${data.apellidoPaterno || ''} ${data.apellidoMaterno || ''}`.trim() || prev.lastName,
+        }));
+        setDniError('');
+      } else {
+        setDniError('No se encontraron datos para este DNI');
+      }
+    } catch {
+      setDniError('Error al consultar el DNI. Puede ingresar los datos manualmente.');
+    } finally {
+      setDniLoading(false);
+    }
+  };
 
   const filteredClients = clients.filter(client => 
     client.firstName.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -214,21 +248,61 @@ export function ClientesPage() {
       </Card>
 
       {/* Add Dialog */}
-      <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
+      <Dialog open={showAddDialog} onOpenChange={(open) => { setShowAddDialog(open); if (!open) { setDniError(''); setDniLoading(false); } }}>
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Nuevo Cliente</DialogTitle>
             <DialogDescription>
-              Ingresa los datos del nuevo cliente
+              Ingresa el DNI para buscar automáticamente o llena los datos manualmente
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
+            {/* DNI with lookup */}
+            <div className="space-y-2">
+              <Label className="flex items-center gap-2">
+                <UserSearch className="w-4 h-4 text-orange-500" />
+                DNI <span className="text-xs text-slate-400 font-normal">(consulta automática RENIEC)</span>
+              </Label>
+              <div className="flex gap-2">
+                <Input 
+                  value={formData.dni} 
+                  onChange={e => {
+                    const val = e.target.value.replace(/\D/g, '').slice(0, 8);
+                    setFormData({...formData, dni: val});
+                    setDniError('');
+                  }}
+                  placeholder="Ej: 72345678"
+                  maxLength={8}
+                  className="flex-1"
+                />
+                <Button 
+                  type="button"
+                  variant="outline"
+                  className="border-orange-300 hover:bg-orange-50 hover:border-orange-400 text-orange-600 min-w-[100px]"
+                  onClick={() => lookupDNI(formData.dni)}
+                  disabled={dniLoading || formData.dni.length !== 8}
+                >
+                  {dniLoading ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <>
+                      <Search className="w-4 h-4 mr-1" />
+                      Buscar
+                    </>
+                  )}
+                </Button>
+              </div>
+              {dniError && (
+                <p className="text-xs text-red-500">{dniError}</p>
+              )}
+            </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Nombre</Label>
                 <Input 
                   value={formData.firstName} 
                   onChange={e => setFormData({...formData, firstName: e.target.value})}
+                  placeholder="Nombres"
                 />
               </div>
               <div className="space-y-2">
@@ -236,6 +310,7 @@ export function ClientesPage() {
                 <Input 
                   value={formData.lastName} 
                   onChange={e => setFormData({...formData, lastName: e.target.value})}
+                  placeholder="Apellidos"
                 />
               </div>
             </div>
@@ -252,13 +327,6 @@ export function ClientesPage() {
                 type="email"
                 value={formData.email} 
                 onChange={e => setFormData({...formData, email: e.target.value})}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>DNI</Label>
-              <Input 
-                value={formData.dni} 
-                onChange={e => setFormData({...formData, dni: e.target.value})}
               />
             </div>
             <div className="space-y-2">

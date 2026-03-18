@@ -33,6 +33,11 @@ import {
 } from '@/services/firebase';
 
 interface ERPContextType {
+  // Estado de conexión
+  isLoading: boolean;
+  firebaseError: string | null;
+  isFirebaseConnected: boolean;
+  
   // Datos
   clients: Client[];
   motorcycles: Motorcycle[];
@@ -155,6 +160,9 @@ interface ERPContextType {
   
   // Exportar base de datos completa
   exportDatabase: () => void;
+  
+  // Importar base de datos completa
+  importDatabase: (data: any) => void;
 }
 
 const ERPContext = createContext<ERPContextType | undefined>(undefined);
@@ -436,12 +444,21 @@ const INITIAL_CUSTOMER_NOTIFICATIONS: CustomerNotification[] = [
 // Generadores de IDs
 let idCounter = 100;
 const generateId = () => `id_${Date.now()}_${idCounter++}`;
-let orderCounter = 4;
-const generateOrderNumber = () => `OT-2024-${String(orderCounter++).padStart(3, '0')}`;
-let saleCounter = 2;
-const generateSaleNumber = () => `V-2024-${String(saleCounter++).padStart(3, '0')}`;
-let quoteCounter = 2;
-const generateQuoteNumber = () => `COT-2024-${String(quoteCounter++).padStart(3, '0')}`;
+let orderCounter = 1;
+const generateOrderNumber = () => {
+  const year = new Date().getFullYear();
+  return `OT-${year}-${String(orderCounter++).padStart(4, '0')}`;
+};
+let saleCounter = 1;
+const generateSaleNumber = () => {
+  const year = new Date().getFullYear();
+  return `V-${year}-${String(saleCounter++).padStart(4, '0')}`;
+};
+let quoteCounter = 1;
+const generateQuoteNumber = () => {
+  const year = new Date().getFullYear();
+  return `COT-${year}-${String(quoteCounter++).padStart(4, '0')}`;
+};
 
 // ============ FUNCIONES DE AUDITORÍA Y TRAZABILIDAD ============
 
@@ -519,21 +536,23 @@ const USE_FIREBASE = import.meta.env.VITE_USE_FIREBASE !== 'false';
 export function ERPProvider({ children }: { children: ReactNode }) {
   const { user: currentUser } = useAuth();
   
-  const [clients, setClients] = useState<Client[]>(INITIAL_CLIENTS);
-  const [motorcycles, setMotorcycles] = useState<Motorcycle[]>(INITIAL_MOTORCYCLES);
-  const [workOrders, setWorkOrders] = useState<WorkOrder[]>(INITIAL_WORK_ORDERS);
-  const [parts, setParts] = useState<Part[]>(INITIAL_PARTS);
-  const [sales, setSales] = useState<Sale[]>(INITIAL_SALES);
-  const [transactions, setTransactions] = useState<Transaction[]>(INITIAL_TRANSACTIONS);
-  const [warehouses, setWarehouses] = useState<Warehouse[]>(INITIAL_WAREHOUSES);
-  const [suppliers, setSuppliers] = useState<Supplier[]>(INITIAL_SUPPLIERS);
+  // Cuando USE_FIREBASE=true, empezar vacío y cargar desde Firestore
+  // Cuando USE_FIREBASE=false, usar datos mock para desarrollo
+  const [clients, setClients] = useState<Client[]>(USE_FIREBASE ? [] : INITIAL_CLIENTS);
+  const [motorcycles, setMotorcycles] = useState<Motorcycle[]>(USE_FIREBASE ? [] : INITIAL_MOTORCYCLES);
+  const [workOrders, setWorkOrders] = useState<WorkOrder[]>(USE_FIREBASE ? [] : INITIAL_WORK_ORDERS);
+  const [parts, setParts] = useState<Part[]>(USE_FIREBASE ? [] : INITIAL_PARTS);
+  const [sales, setSales] = useState<Sale[]>(USE_FIREBASE ? [] : INITIAL_SALES);
+  const [transactions, setTransactions] = useState<Transaction[]>(USE_FIREBASE ? [] : INITIAL_TRANSACTIONS);
+  const [warehouses, setWarehouses] = useState<Warehouse[]>(USE_FIREBASE ? [] : INITIAL_WAREHOUSES);
+  const [suppliers, setSuppliers] = useState<Supplier[]>(USE_FIREBASE ? [] : INITIAL_SUPPLIERS);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   
   // Nuevos estados
-  const [customerNotifications, setCustomerNotifications] = useState<CustomerNotification[]>(INITIAL_CUSTOMER_NOTIFICATIONS);
-  const [thirdPartyServices, setThirdPartyServices] = useState<ThirdPartyService[]>(INITIAL_THIRD_PARTY_SERVICES);
-  const [quotes, setQuotes] = useState<Quote[]>(INITIAL_QUOTES);
-  const [businessPolicies, setBusinessPolicies] = useState<BusinessPolicy[]>(INITIAL_BUSINESS_POLICIES);
+  const [customerNotifications, setCustomerNotifications] = useState<CustomerNotification[]>(USE_FIREBASE ? [] : INITIAL_CUSTOMER_NOTIFICATIONS);
+  const [thirdPartyServices, setThirdPartyServices] = useState<ThirdPartyService[]>(USE_FIREBASE ? [] : INITIAL_THIRD_PARTY_SERVICES);
+  const [quotes, setQuotes] = useState<Quote[]>(USE_FIREBASE ? [] : INITIAL_QUOTES);
+  const [businessPolicies, setBusinessPolicies] = useState<BusinessPolicy[]>(USE_FIREBASE ? [] : INITIAL_BUSINESS_POLICIES);
   
   // Estados para pre-inspecciones y tasks
   const [inspections, setInspections] = useState<MotorcycleInspection[]>([]);
@@ -544,26 +563,30 @@ export function ERPProvider({ children }: { children: ReactNode }) {
   const [globalAuditLog, setGlobalAuditLog] = useState<AuditEntry[]>([]);
   
   const [stats, setStats] = useState<DashboardStats>({
-    totalOrders: 3,
-    pendingOrders: 1,
-    inProgressOrders: 1,
+    totalOrders: 0,
+    pendingOrders: 0,
+    inProgressOrders: 0,
     completedOrdersToday: 0,
     revenueToday: 0,
-    revenueMonth: 225,
+    revenueMonth: 0,
     expensesToday: 0,
-    lowStockItems: 1,
-    totalParts: 5,
+    lowStockItems: 0,
+    totalParts: 0,
     salesToday: 0,
     salesCountToday: 0,
   });
   
-  const [isFirebaseReady, setIsFirebaseReady] = useState(false);
+  const [isFirebaseReady, setIsFirebaseReady] = useState(!USE_FIREBASE);
+  const [isLoading, setIsLoading] = useState(USE_FIREBASE);
+  const [firebaseError, setFirebaseError] = useState<string | null>(null);
   
   // Cargar datos desde Firebase al iniciar
   useEffect(() => {
     if (!USE_FIREBASE) return;
     
     const loadData = async () => {
+      setIsLoading(true);
+      setFirebaseError(null);
       try {
         const [
           clientsData,
@@ -578,6 +601,8 @@ export function ERPProvider({ children }: { children: ReactNode }) {
           businessPoliciesData,
           inspectionsData,
           workOrderTasksData,
+          customerNotificationsData,
+          thirdPartyServicesData,
         ] = await Promise.all([
           clientsService.getAll(),
           motorcyclesService.getAll(),
@@ -591,24 +616,65 @@ export function ERPProvider({ children }: { children: ReactNode }) {
           businessPoliciesService.getAll(),
           inspectionsService.getAll(),
           workOrderTasksService.getAll(),
+          customerNotificationsService.getAll(),
+          thirdPartyServicesService.getAll(),
         ]);
         
-        if (clientsData.length > 0) setClients(clientsData as Client[]);
-        if (motorcyclesData.length > 0) setMotorcycles(motorcyclesData as Motorcycle[]);
-        if (workOrdersData.length > 0) setWorkOrders(workOrdersData as WorkOrder[]);
-        if (partsData.length > 0) setParts(partsData as Part[]);
-        if (salesData.length > 0) setSales(salesData as Sale[]);
-        if (transactionsData.length > 0) setTransactions(transactionsData as Transaction[]);
-        if (warehousesData.length > 0) setWarehouses(warehousesData as Warehouse[]);
-        if (suppliersData.length > 0) setSuppliers(suppliersData as Supplier[]);
-        if (quotesData.length > 0) setQuotes(quotesData as Quote[]);
-        if (businessPoliciesData.length > 0) setBusinessPolicies(businessPoliciesData as BusinessPolicy[]);
-        if (inspectionsData.length > 0) setInspections(inspectionsData as MotorcycleInspection[]);
-        if (workOrderTasksData.length > 0) setWorkOrderTasks(workOrderTasksData as WorkOrderTask[]);
+        // Siempre usar datos de Firebase (incluso si están vacíos)
+        setClients(clientsData as Client[]);
+        setMotorcycles(motorcyclesData as Motorcycle[]);
+        setWorkOrders(workOrdersData as WorkOrder[]);
+        setParts(partsData as Part[]);
+        setSales(salesData as Sale[]);
+        setTransactions(transactionsData as Transaction[]);
+        setWarehouses(warehousesData.length > 0 ? warehousesData as Warehouse[] : INITIAL_WAREHOUSES);
+        setSuppliers(suppliersData.length > 0 ? suppliersData as Supplier[] : INITIAL_SUPPLIERS);
+        setQuotes(quotesData as Quote[]);
+        setBusinessPolicies(businessPoliciesData as BusinessPolicy[]);
+        setInspections(inspectionsData as MotorcycleInspection[]);
+        setWorkOrderTasks(workOrderTasksData as WorkOrderTask[]);
+        setCustomerNotifications(customerNotificationsData as CustomerNotification[]);
+        setThirdPartyServices(thirdPartyServicesData as ThirdPartyService[]);
+        
+        // Sincronizar contadores con datos existentes de Firebase
+        const maxOrderNum = (workOrdersData as WorkOrder[]).reduce((max, wo) => {
+          const num = parseInt(wo.orderNumber?.replace(/\D/g, '') || '0');
+          return num > max ? num : max;
+        }, 0);
+        orderCounter = maxOrderNum + 1;
+        
+        const maxSaleNum = (salesData as Sale[]).reduce((max, s) => {
+          const num = parseInt(s.saleNumber?.replace(/\D/g, '') || '0');
+          return num > max ? num : max;
+        }, 0);
+        saleCounter = maxSaleNum + 1;
+        
+        const maxQuoteNum = (quotesData as Quote[]).reduce((max, q) => {
+          const num = parseInt(q.quoteNumber?.replace(/\D/g, '') || '0');
+          return num > max ? num : max;
+        }, 0);
+        quoteCounter = maxQuoteNum + 1;
         
         setIsFirebaseReady(true);
+        console.log('✅ Firebase conectado — datos cargados correctamente');
       } catch (error) {
-        console.error('Error loading data from Firebase:', error);
+        console.error('❌ Error al conectar con Firebase:', error);
+        setFirebaseError('No se pudo conectar con Firebase. Trabajando en modo local.');
+        // Fallback: usar datos mock para que la app siga funcionando
+        setClients(INITIAL_CLIENTS);
+        setMotorcycles(INITIAL_MOTORCYCLES);
+        setWorkOrders(INITIAL_WORK_ORDERS);
+        setParts(INITIAL_PARTS);
+        setSales(INITIAL_SALES);
+        setTransactions(INITIAL_TRANSACTIONS);
+        setWarehouses(INITIAL_WAREHOUSES);
+        setSuppliers(INITIAL_SUPPLIERS);
+        setQuotes(INITIAL_QUOTES);
+        setBusinessPolicies(INITIAL_BUSINESS_POLICIES);
+        setCustomerNotifications(INITIAL_CUSTOMER_NOTIFICATIONS);
+        setThirdPartyServices(INITIAL_THIRD_PARTY_SERVICES);
+      } finally {
+        setIsLoading(false);
       }
     };
     
@@ -630,6 +696,8 @@ export function ERPProvider({ children }: { children: ReactNode }) {
       businessPoliciesService.onSnapshot((data) => setBusinessPolicies(data as BusinessPolicy[])),
       inspectionsService.onSnapshot((data) => setInspections(data as MotorcycleInspection[])),
       workOrderTasksService.onSnapshot((data) => setWorkOrderTasks(data as WorkOrderTask[])),
+      customerNotificationsService.onSnapshot((data) => setCustomerNotifications(data as CustomerNotification[])),
+      thirdPartyServicesService.onSnapshot((data) => setThirdPartyServices(data as ThirdPartyService[])),
     ];
     
     return () => {
@@ -666,12 +734,17 @@ export function ERPProvider({ children }: { children: ReactNode }) {
 
   const deleteClient = useCallback(async (id: string) => {
     if (USE_FIREBASE && isFirebaseReady) {
+      // Cascade: eliminar motos del cliente en Firebase
+      const clientMotorcycles = motorcycles.filter(m => m.clientId === id);
+      for (const moto of clientMotorcycles) {
+        await motorcyclesService.delete(moto.id);
+      }
       await clientsService.delete(id);
     } else {
       setClients(prev => prev.filter(c => c.id !== id));
       setMotorcycles(prev => prev.filter(m => m.clientId !== id));
     }
-  }, [isFirebaseReady]);
+  }, [isFirebaseReady, motorcycles]);
 
   const getClientById = useCallback((id: string) => {
     return clients.find(c => c.id === id);
@@ -706,12 +779,17 @@ export function ERPProvider({ children }: { children: ReactNode }) {
 
   const deleteMotorcycle = useCallback(async (id: string) => {
     if (USE_FIREBASE && isFirebaseReady) {
+      // Cascade: eliminar órdenes de trabajo de esta moto en Firebase
+      const motoOrders = workOrders.filter(wo => wo.motorcycleId === id);
+      for (const order of motoOrders) {
+        await workOrdersService.delete(order.id);
+      }
       await motorcyclesService.delete(id);
     } else {
       setMotorcycles(prev => prev.filter(m => m.id !== id));
       setWorkOrders(prev => prev.filter(wo => wo.motorcycleId !== id));
     }
-  }, [isFirebaseReady]);
+  }, [isFirebaseReady, workOrders]);
 
   const getMotorcyclesByClient = useCallback((clientId: string) => {
     return motorcycles.filter(m => m.clientId === clientId);
@@ -862,12 +940,13 @@ export function ERPProvider({ children }: { children: ReactNode }) {
     }
   }, [isFirebaseReady]);
 
-  const updateStock = useCallback(async (partId: string, quantity: number, type: 'entrada' | 'salida') => {
+  const updateStock = useCallback(async (partId: string, quantity: number, type: 'entrada' | 'salida', reason?: string, referenceId?: string, referenceType?: 'workorder' | 'sale' | 'purchase' | 'adjustment') => {
+    const part = parts.find(p => p.id === partId);
     if (USE_FIREBASE && isFirebaseReady) {
-      const part = parts.find(p => p.id === partId);
       if (part) {
         const newStock = type === 'entrada' ? part.stock + quantity : part.stock - quantity;
         await partsService.update(partId, { stock: Math.max(0, newStock), updatedAt: new Date() } as Partial<Part>);
+        addInventoryMovement(setInventoryMovements, part, warehouses, quantity, type, currentUser, reason, referenceId, referenceType);
       }
     } else {
       setParts(prev => prev.map(p => {
@@ -875,9 +954,12 @@ export function ERPProvider({ children }: { children: ReactNode }) {
         const newStock = type === 'entrada' ? p.stock + quantity : p.stock - quantity;
         return { ...p, stock: Math.max(0, newStock), updatedAt: new Date() };
       }));
+      if (part) {
+        addInventoryMovement(setInventoryMovements, part, warehouses, quantity, type, currentUser, reason, referenceId, referenceType);
+      }
     }
     refreshStats();
-  }, [isFirebaseReady, parts]);
+  }, [isFirebaseReady, parts, warehouses, currentUser]);
 
   const deletePart = useCallback(async (id: string) => {
     if (USE_FIREBASE && isFirebaseReady) {
@@ -906,12 +988,12 @@ export function ERPProvider({ children }: { children: ReactNode }) {
     
     if (USE_FIREBASE && isFirebaseReady) {
       const id = await salesService.add(newSale);
-      
-      // Descontar stock
+
+      // Descontar stock con trazabilidad
       for (const item of sale.items) {
-        await updateStock(item.partId, item.quantity, 'salida');
+        await updateStock(item.partId, item.quantity, 'salida', `Venta ${newSale.saleNumber}`, id, 'sale');
       }
-      
+
       // Crear transacción
       const transaction: Omit<Transaction, 'id' | 'createdAt'> = {
         type: 'ingreso',
@@ -929,12 +1011,12 @@ export function ERPProvider({ children }: { children: ReactNode }) {
     } else {
       const id = generateId();
       setSales(prev => [...prev, { ...newSale, id }]);
-      
-      // Descontar stock
+
+      // Descontar stock con trazabilidad
       sale.items.forEach(item => {
-        updateStock(item.partId, item.quantity, 'salida');
+        updateStock(item.partId, item.quantity, 'salida', `Venta ${newSale.saleNumber}`, id, 'sale');
       });
-      
+
       // Crear transacción
       const transaction: Omit<Transaction, 'id' | 'createdAt'> = {
         type: 'ingreso',
@@ -1173,61 +1255,68 @@ export function ERPProvider({ children }: { children: ReactNode }) {
     return quotes.filter(q => q.clientId === clientId);
   }, [quotes]);
 
-  const convertQuoteToWorkOrder = useCallback((quoteId: string) => {
+  const convertQuoteToWorkOrder = useCallback(async (quoteId: string) => {
     const quote = quotes.find(q => q.id === quoteId);
     if (!quote) return '';
-    
-    // Crear nueva orden de trabajo basada en la cotización
-    const workOrderId = generateId();
-    const newWorkOrder: WorkOrder = {
-      id: workOrderId,
-      orderNumber: generateOrderNumber(),
+    if (!quote.motorcycleId) return '';
+
+    const orderData: Omit<WorkOrder, 'id' | 'orderNumber' | 'createdAt'> = {
       clientId: quote.clientId,
-      motorcycleId: quote.motorcycleId || '',
+      motorcycleId: quote.motorcycleId,
       workType: quote.workType,
       description: quote.description,
       status: 'pendiente',
       priority: 'media',
       assignedTo: [],
       assignedBy: quote.createdBy,
-      createdAt: new Date(),
       laborCost: quote.laborItems.reduce((sum, item) => sum + item.total, 0),
       partsCost: quote.partsItems.reduce((sum, item) => sum + item.total, 0),
       totalCost: quote.total,
       createdBy: quote.createdBy,
     };
-    
-    setWorkOrders(prev => [...prev, newWorkOrder]);
-    setQuotes(prev => prev.map(q => 
-      q.id === quoteId ? { ...q, status: 'convertida', convertedToWorkOrderId: workOrderId } : q
-    ));
-    
+
+    const workOrderId = await addWorkOrder(orderData);
+    await updateQuoteStatus(quoteId, 'convertida');
+    await updateQuote(quoteId, { convertedToWorkOrderId: workOrderId as string });
     return workOrderId;
-  }, [quotes]);
+  }, [quotes, addWorkOrder, updateQuoteStatus, updateQuote]);
 
   // ============ POLÍTICAS DEL NEGOCIO ============
-  const addBusinessPolicy = useCallback((policy: Omit<BusinessPolicy, 'id' | 'createdAt' | 'updatedAt'>) => {
-    const id = generateId();
+  const addBusinessPolicy = useCallback(async (policy: Omit<BusinessPolicy, 'id' | 'createdAt' | 'updatedAt'>) => {
     const now = new Date();
-    const newPolicy: BusinessPolicy = {
+    const newPolicy = {
       ...policy,
-      id,
       createdAt: now,
       updatedAt: now,
     };
-    setBusinessPolicies(prev => [...prev, newPolicy]);
-    return id;
-  }, []);
+    
+    if (USE_FIREBASE && isFirebaseReady) {
+      const id = await businessPoliciesService.add(newPolicy);
+      return id;
+    } else {
+      const id = generateId();
+      setBusinessPolicies(prev => [...prev, { ...newPolicy, id } as BusinessPolicy]);
+      return id;
+    }
+  }, [isFirebaseReady]);
 
-  const updateBusinessPolicy = useCallback((id: string, data: Partial<BusinessPolicy>) => {
-    setBusinessPolicies(prev => prev.map(p => 
-      p.id === id ? { ...p, ...data, updatedAt: new Date() } : p
-    ));
-  }, []);
+  const updateBusinessPolicy = useCallback(async (id: string, data: Partial<BusinessPolicy>) => {
+    if (USE_FIREBASE && isFirebaseReady) {
+      await businessPoliciesService.update(id, { ...data, updatedAt: new Date() } as Partial<BusinessPolicy>);
+    } else {
+      setBusinessPolicies(prev => prev.map(p => 
+        p.id === id ? { ...p, ...data, updatedAt: new Date() } : p
+      ));
+    }
+  }, [isFirebaseReady]);
 
-  const deleteBusinessPolicy = useCallback((id: string) => {
-    setBusinessPolicies(prev => prev.filter(p => p.id !== id));
-  }, []);
+  const deleteBusinessPolicy = useCallback(async (id: string) => {
+    if (USE_FIREBASE && isFirebaseReady) {
+      await businessPoliciesService.delete(id);
+    } else {
+      setBusinessPolicies(prev => prev.filter(p => p.id !== id));
+    }
+  }, [isFirebaseReady]);
 
   const getActivePolicies = useCallback(() => {
     return businessPolicies.filter(p => p.isActive).sort((a, b) => a.order - b.order);
@@ -1295,10 +1384,23 @@ export function ERPProvider({ children }: { children: ReactNode }) {
           totalCost: newLaborCost + newPartsCost,
         });
       }
+      
+      // DESCUENTO AUTOMÁTICO DE STOCK — si es repuesto con partId
+      if (task.type === 'repuesto' && task.partId) {
+        const orderNum = order?.orderNumber || task.orderId;
+        await updateStock(task.partId, task.quantity, 'salida', 
+          `Usado en orden ${orderNum}: ${task.description}`, 
+          task.orderId, 'workorder'
+        );
+        // Marcar que el stock fue descontado
+        await workOrderTasksService.update(id, { stockDeducted: true } as Partial<WorkOrderTask>);
+      }
+      
       return id;
     } else {
       const id = generateId();
-      setWorkOrderTasks(prev => [...prev, { ...newTask, id }]);
+      const taskWithStock = { ...newTask, id, stockDeducted: !!(task.type === 'repuesto' && task.partId) };
+      setWorkOrderTasks(prev => [...prev, taskWithStock]);
       
       // Actualizar el costo total de la orden
       const order = workOrders.find(o => o.id === task.orderId);
@@ -1311,15 +1413,29 @@ export function ERPProvider({ children }: { children: ReactNode }) {
           totalCost: newLaborCost + newPartsCost,
         });
       }
+      
+      // DESCUENTO AUTOMÁTICO DE STOCK — si es repuesto con partId
+      if (task.type === 'repuesto' && task.partId) {
+        const orderNum = order?.orderNumber || task.orderId;
+        updateStock(task.partId, task.quantity, 'salida', 
+          `Usado en orden ${orderNum}: ${task.description}`, 
+          task.orderId, 'workorder'
+        );
+      }
+      
       return id;
     }
-  }, [isFirebaseReady, workOrderTasks, workOrders, updateWorkOrder]);
+  }, [isFirebaseReady, workOrderTasks, workOrders, updateWorkOrder, updateStock]);
 
-  const updateWorkOrderTask = useCallback((id: string, data: Partial<WorkOrderTask>) => {
-    setWorkOrderTasks(prev => prev.map(t => t.id === id ? { ...t, ...data } : t));
-  }, []);
+  const updateWorkOrderTask = useCallback(async (id: string, data: Partial<WorkOrderTask>) => {
+    if (USE_FIREBASE && isFirebaseReady) {
+      await workOrderTasksService.update(id, data);
+    } else {
+      setWorkOrderTasks(prev => prev.map(t => t.id === id ? { ...t, ...data } : t));
+    }
+  }, [isFirebaseReady]);
 
-  const deleteWorkOrderTask = useCallback((id: string) => {
+  const deleteWorkOrderTask = useCallback(async (id: string) => {
     const task = workOrderTasks.find(t => t.id === id);
     if (task) {
       // Restar el costo de la orden
@@ -1327,23 +1443,40 @@ export function ERPProvider({ children }: { children: ReactNode }) {
       if (order) {
         const newLaborCost = task.type === 'mano_obra' ? order.laborCost - task.totalPrice : order.laborCost;
         const newPartsCost = task.type === 'repuesto' ? order.partsCost - task.totalPrice : order.partsCost;
-        updateWorkOrder(task.orderId, {
+        await updateWorkOrder(task.orderId, {
           laborCost: Math.max(0, newLaborCost),
           partsCost: Math.max(0, newPartsCost),
           totalCost: Math.max(0, newLaborCost + newPartsCost),
         });
       }
+      
+      // DEVOLVER STOCK — si era repuesto con partId y el stock fue descontado
+      if (task.type === 'repuesto' && task.partId && task.stockDeducted) {
+        const orderNum = order?.orderNumber || task.orderId;
+        await updateStock(task.partId, task.quantity, 'entrada',
+          `Devuelto de orden ${orderNum}: ${task.description} (item eliminado)`,
+          task.orderId, 'workorder'
+        );
+      }
     }
-    setWorkOrderTasks(prev => prev.filter(t => t.id !== id));
-  }, [workOrderTasks, workOrders]);
+    if (USE_FIREBASE && isFirebaseReady) {
+      await workOrderTasksService.delete(id);
+    } else {
+      setWorkOrderTasks(prev => prev.filter(t => t.id !== id));
+    }
+  }, [isFirebaseReady, workOrderTasks, workOrders, updateWorkOrder, updateStock]);
 
   const getTasksByWorkOrder = useCallback((workOrderId: string) => {
     return workOrderTasks.filter(t => t.orderId === workOrderId).sort((a, b) => a.itemNumber - b.itemNumber);
   }, [workOrderTasks]);
 
-  const updateTaskStatus = useCallback((id: string, status: WorkOrderTask['status']) => {
-    setWorkOrderTasks(prev => prev.map(t => t.id === id ? { ...t, status } : t));
-  }, []);
+  const updateTaskStatus = useCallback(async (id: string, status: WorkOrderTask['status']) => {
+    if (USE_FIREBASE && isFirebaseReady) {
+      await workOrderTasksService.update(id, { status } as Partial<WorkOrderTask>);
+    } else {
+      setWorkOrderTasks(prev => prev.map(t => t.id === id ? { ...t, status } : t));
+    }
+  }, [isFirebaseReady]);
 
   const refreshStats = useCallback(() => {
     const today = new Date();
@@ -1380,6 +1513,14 @@ export function ERPProvider({ children }: { children: ReactNode }) {
   }, [workOrders, parts, sales, transactions]);
 
   // ============ EXPORTAR BASE DE DATOS ============
+  
+  // Auto-refresh stats cuando los datos cambien
+  useEffect(() => {
+    if (!isLoading) {
+      refreshStats();
+    }
+  }, [workOrders.length, parts.length, sales.length, transactions.length, isLoading]);
+  
   const exportDatabase = useCallback(() => {
     const now = new Date();
     const timestamp = now.toISOString().slice(0, 19).replace(/[:-]/g, '').replace('T', '-');
@@ -1419,9 +1560,35 @@ export function ERPProvider({ children }: { children: ReactNode }) {
     URL.revokeObjectURL(url);
   }, [clients, motorcycles, workOrders, parts, sales, transactions, warehouses, suppliers, customerNotifications, thirdPartyServices, quotes, businessPolicies, inspections, workOrderTasks, inventoryMovements, globalAuditLog]);
 
+  const importDatabase = useCallback((data: any) => {
+    try {
+      if (data.clients) setClients(data.clients);
+      if (data.motorcycles) setMotorcycles(data.motorcycles);
+      if (data.workOrders) setWorkOrders(data.workOrders);
+      if (data.parts) setParts(data.parts);
+      if (data.sales) setSales(data.sales);
+      if (data.transactions) setTransactions(data.transactions);
+      if (data.warehouses) setWarehouses(data.warehouses);
+      if (data.suppliers) setSuppliers(data.suppliers);
+      if (data.customerNotifications) setCustomerNotifications(data.customerNotifications);
+      if (data.thirdPartyServices) setThirdPartyServices(data.thirdPartyServices);
+      if (data.quotes) setQuotes(data.quotes);
+      if (data.businessPolicies) setBusinessPolicies(data.businessPolicies);
+      if (data.inspections) setInspections(data.inspections);
+      if (data.workOrderTasks) setWorkOrderTasks(data.workOrderTasks);
+      if (data.inventoryMovements) setInventoryMovements(data.inventoryMovements);
+      if (data.globalAuditLog) setGlobalAuditLog(data.globalAuditLog);
+    } catch (err) {
+      console.error('Error importando base de datos:', err);
+    }
+  }, []);
+
   return (
     <ERPContext.Provider
       value={{
+        isLoading,
+        firebaseError,
+        isFirebaseConnected: isFirebaseReady && USE_FIREBASE,
         clients,
         motorcycles,
         workOrders,
@@ -1501,6 +1668,7 @@ export function ERPProvider({ children }: { children: ReactNode }) {
         updateTaskStatus,
         refreshStats,
         exportDatabase,
+        importDatabase,
       }}
     >
       {children}
